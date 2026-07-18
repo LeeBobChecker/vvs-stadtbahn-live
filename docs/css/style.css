@@ -91,6 +91,7 @@ html, body {
 }
 .badge-sim { background: rgba(210, 153, 34, 0.15); color: var(--sim); border: 1px solid rgba(210, 153, 34, 0.4); }
 .badge-live { background: rgba(63, 185, 80, 0.15); color: var(--live); border: 1px solid rgba(63, 185, 80, 0.4); }
+.badge-offline { background: rgba(248, 81, 73, 0.12); color: #f85149; border: 1px solid rgba(248, 81, 73, 0.4); }
 
 .topbar-right { display: flex; gap: 20px; }
 
@@ -195,6 +196,31 @@ html, body {
   opacity: 0.55;
 }
 .chip:hover { transform: scale(1.06); }
+
+.seg {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+}
+.seg-btn {
+  flex: 1;
+  padding: 6px 4px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  background: transparent;
+  color: var(--text-dim);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.seg-btn:hover { color: var(--text); }
+.seg-btn.active {
+  background: rgba(88, 166, 255, 0.18);
+  color: var(--accent);
+}
 
 .time-controls {
   display: flex;
@@ -414,6 +440,8 @@ body.light .time-btn:hover { background: rgba(0, 0, 0, 0.09); }
 body.light .fav-item:hover { background: rgba(0, 0, 0, 0.05); }
 body.light .badge-sim { background: rgba(154, 103, 0, 0.08); }
 body.light .badge-live { background: rgba(26, 127, 55, 0.08); }
+body.light .badge-offline { background: rgba(207, 34, 46, 0.07); color: #cf222e; border-color: rgba(207, 34, 46, 0.4); }
+body.light .seg { background: rgba(0, 0, 0, 0.04); }
 body.light .veh-train svg { filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35)); }
 body.light .fav-icon {
   text-shadow: 0 0 3px rgba(255, 255, 255, 0.95), 0 1px 2px rgba(0, 0, 0, 0.4);

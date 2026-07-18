@@ -22,7 +22,14 @@ python3 -m http.server 8173 --directory docs
 ## Funktionen
 
 - **Live-Positionen** aller 15 U-Linien, entlang der echten Gleisgeometrie
-  interpoliert (inkl. Standzeiten an Stationen)
+  interpoliert: konstante Fahrt zwischen den Halten, kurze Standzeit
+  (~20 s) an jeder Station. Da die VVS-Zeiten minutengenau sind, wird je
+  Fahrt eine stetige Zeit/Distanz-Kurve berechnet — auch bei
+  0-Sekunden-Segmenten im Fahrplan gibt es keine Positionssprünge.
+- **Datenquellen-Schalter** Simulation ↔ Live (API): Der Live-Modus zeigt,
+  solange die Echtzeit-API nicht verbunden ist, den Status „Live — offline";
+  sobald in `docs/js/datasource.js` eine Feed-URL konfiguriert ist,
+  erscheinen dort die echten Positionen.
 - **Stadtbahn-Icons**: Zug von oben in Linienfarbe, in Fahrtrichtung gedreht —
   die helle Frontscheibe zeigt, wohin der Zug fährt; die Liniennummer bleibt
   immer lesbar

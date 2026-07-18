@@ -391,12 +391,52 @@
     );
   }
 
+  /* ---- Datenquelle: Simulation <-> Live (API) ----------------------- */
+  let sourceMode = "sim";
+  const badgeEl = document.getElementById("source-badge");
+  const sourceHintEl = document.getElementById("source-hint");
+
+  function refreshSourceInfo() {
+    if (sourceMode === "live") {
+      if (realtime.available()) {
+        badgeEl.textContent = "Live";
+        badgeEl.className = "badge badge-live";
+        badgeEl.title = "Echtzeitpositionen aus der VVS-API.";
+        sourceHintEl.textContent = "Echtzeitpositionen aus der VVS-API.";
+      } else {
+        badgeEl.textContent = "Live — offline";
+        badgeEl.className = "badge badge-offline";
+        badgeEl.title = "Die Echtzeit-API ist noch nicht verbunden.";
+        sourceHintEl.textContent =
+          "Echtzeit-API noch nicht verbunden — sobald der VVS-Zugang freigeschaltet ist, erscheinen hier die echten Positionen.";
+      }
+    } else {
+      badgeEl.textContent = "Fahrplan-Simulation";
+      badgeEl.className = "badge badge-sim";
+      badgeEl.title =
+        "Positionen werden aus dem GTFS-Fahrplan berechnet. Sobald die Echtzeit-API freigeschaltet ist, liefert der Live-Modus echte Daten.";
+      sourceHintEl.textContent =
+        "Positionen werden aus dem GTFS-Fahrplan berechnet.";
+    }
+  }
+
+  document.querySelectorAll("#source-toggle .seg-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      sourceMode = btn.dataset.mode;
+      document
+        .querySelectorAll("#source-toggle .seg-btn")
+        .forEach((b) => b.classList.toggle("active", b === btn));
+      refreshSourceInfo();
+      tick();
+    });
+  });
+  refreshSourceInfo();
+
   /* ---- Animationsschleife ------------------------------------------ */
   function tick() {
     const now = appTime();
 
-    // Datenquelle: Echtzeit sobald verfuegbar, sonst Simulation
-    const source = realtime.available() ? realtime : simulator;
+    const source = sourceMode === "live" ? realtime : simulator;
     const vehicles = source.getVehicles(now).filter((v) => enabledRoutes.has(v.route));
 
     const seen = new Set();
@@ -411,7 +451,12 @@
       entry.marker.setLatLng([v.lat, v.lon]);
       entry.trainEl.style.transform = "rotate(" + v.bearing.toFixed(1) + "deg)";
       if (entry.marker.isPopupOpen()) {
-        entry.marker.setPopupContent(popupHtml(v));
+        // Popup nur bei inhaltlicher Aenderung neu rendern (10-Hz-Takt)
+        const html = popupHtml(v);
+        if (html !== entry.lastPopup) {
+          entry.lastPopup = html;
+          entry.marker.setPopupContent(html);
+        }
       }
     }
     // verschwundene Fahrzeuge entfernen
@@ -426,8 +471,12 @@
     clockEl.textContent = new Date(now).toLocaleTimeString("de-DE");
   }
 
-  setInterval(tick, 1000);
+  // 10 Hz fuer fluessige, konstante Bewegung entlang der Strecke
+  setInterval(tick, 100);
   tick();
+
+  // Fuer Debugging und die spaetere API-Anbindung
+  window.stadtbahn = { simulator, realtime };
 
   document.getElementById("loading").classList.add("hidden");
 })().catch((err) => {

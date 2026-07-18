@@ -27,6 +27,17 @@
 
 class ScheduleSimulator {
   /**
+   * Ziel-Standzeit an jeder Station in Sekunden. Die VVS-Zeiten sind
+   * minutengenau; oft ist Ankunft == Abfahrt und bei kurzen Stations-
+   * abstaenden sogar Abfahrt A == Ankunft B (0 s Fahrzeit). Deshalb wird
+   * je Fahrt eine stetige Zeit/Distanz-Kurve gebaut: Standfenster werden
+   * um die Planzeit zentriert und auf max. 30 % des Abstands zum
+   * Nachbarhalt gekappt — so bleibt immer Fahrzeit uebrig und die Bahn
+   * bewegt sich konstant ohne Spruenge.
+   */
+  static DWELL = 20;
+
+  /**
    * @param {Object} network  Inhalt von data/network.json
    * @param {Object} schedule Inhalt von data/schedule.json
    */
@@ -67,13 +78,16 @@ class ScheduleSimulator {
   /* ---- aktive Fahrten -------------------------------------------- */
 
   /**
-   * Fahrten, die zum Zeitpunkt `timeMs` unterwegs sind, jeweils mit den
-   * Sekunden relativ zum zugehoerigen Betriebstag.
-   * GTFS-Zeiten koennen > 24 h laufen, daher werden der heutige und der
-   * gestrige Betriebstag geprueft.
+   * Fahrten, die zum Zeitpunkt `timeMs` (etwa) unterwegs sind, mit dem
+   * Sekunden-Offset ihres Betriebstags (GTFS-Zeiten laufen > 24 h, daher
+   * werden heutiger und gestriger Betriebstag geprueft).
+   *
+   * Wichtig: gecacht wird nur die Kandidatenliste (10-s-Raster, mit
+   * Randpuffer) — die konkrete Sekunde rechnet getVehicles() bei jedem
+   * Aufruf frisch, damit sich die Bahnen kontinuierlich bewegen.
    */
   _activeTrips(timeMs) {
-    const cacheKey = Math.floor(timeMs / 30000); // 30-s-Raster
+    const cacheKey = Math.floor(timeMs / 10000);
     if (this._activeCache.key === cacheKey) return this._activeCache.trips;
 
     const now = new Date(timeMs);
@@ -82,8 +96,8 @@ class ScheduleSimulator {
     const yesterday = new Date(midnight.getTime() - 86400000);
 
     const days = [
-      { services: this._activeServices(midnight), sec: secToday },
-      { services: this._activeServices(yesterday), sec: secToday + 86400 },
+      { services: this._activeServices(midnight), off: 0 },
+      { services: this._activeServices(yesterday), off: 86400 },
     ];
 
     const result = [];
@@ -92,13 +106,47 @@ class ScheduleSimulator {
       const last = trip.st[trip.st.length - 1];
       for (const day of days) {
         if (!day.services.has(trip.sv)) continue;
-        if (day.sec >= first[2] && day.sec <= last[1]) {
-          result.push({ trip, sec: day.sec });
+        const sec = secToday + day.off;
+        if (sec >= first[2] - 15 && sec <= last[1] + 15) {
+          result.push({ trip, off: day.off });
         }
       }
     }
     this._activeCache = { key: cacheKey, trips: result };
     return result;
+  }
+
+  /* ---- Zeit/Distanz-Kurve je Fahrt --------------------------------- */
+
+  /**
+   * Baut (einmalig, gecacht) eine monotone Folge von Knoten
+   * (Zeit, Distanz): je Halt ein Stand-Fenster [Start, Ende] mit
+   * konstanter Distanz, dazwischen lineare Fahrt. Die Fenster sind um
+   * die Fahrplanzeit zentriert und pro Seite auf 30 % des Abstands zum
+   * Nachbarhalt begrenzt — dadurch existiert auch bei 0-Sekunden-
+   * Segmenten des Fahrplans immer ein Fahrfenster.
+   */
+  _timeline(trip) {
+    if (trip._tl) return trip._tl;
+    const half = ScheduleSimulator.DWELL / 2;
+    const st = trip.st;
+    const n = st.length;
+    const center = st.map((s) => (s[1] + s[2]) / 2);
+    const times = new Float64Array(n * 2);
+    const dists = new Float64Array(n * 2);
+    for (let k = 0; k < n; k++) {
+      const sched = (st[k][2] - st[k][1]) / 2; // halbe Plan-Standzeit
+      const capPrev = k > 0 ? 0.3 * (center[k] - center[k - 1]) : Infinity;
+      const capNext = k < n - 1 ? 0.3 * (center[k + 1] - center[k]) : Infinity;
+      const hBefore = Math.min(sched + half, capPrev);
+      const hAfter = Math.min(sched + half, capNext);
+      times[k * 2] = center[k] - hBefore;
+      times[k * 2 + 1] = center[k] + hAfter;
+      dists[k * 2] = st[k][3];
+      dists[k * 2 + 1] = st[k][3];
+    }
+    trip._tl = { t: times, d: dists };
+    return trip._tl;
   }
 
   /* ---- Geometrie -------------------------------------------------- */
@@ -134,30 +182,48 @@ class ScheduleSimulator {
 
   /** @returns {Array} Fahrzeugliste im oben beschriebenen Format */
   getVehicles(timeMs) {
+    const d = new Date(timeMs);
+    const midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const secBase = (timeMs - midnight) / 1000;
+
     const vehicles = [];
-    for (const { trip, sec } of this._activeTrips(timeMs)) {
+    for (const { trip, off } of this._activeTrips(timeMs)) {
+      const sec = secBase + off;
       const st = trip.st; // [stationIdx, arr, dep, dist]
-      // Segment suchen, in dem `sec` liegt
-      let i = 0;
-      while (i < st.length - 1 && sec > st[i + 1][1]) i++;
-      const cur = st[i];
-      const next = st[Math.min(i + 1, st.length - 1)];
+      // exakte Aktivitaetspruefung (Kandidatenliste hat Randpuffer)
+      if (sec < st[0][2] || sec > st[st.length - 1][1]) continue;
+      const tl = this._timeline(trip);
+      const times = tl.t;
+      const nNodes = times.length;
+
+      // ersten Knoten > sec suchen (binaere Suche)
+      let lo = 0;
+      let hi = nNodes;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (times[mid] <= sec) lo = mid + 1;
+        else hi = mid;
+      }
+      const j = lo;
 
       let dist;
-      if (sec <= cur[2]) {
-        dist = cur[3]; // Standzeit an der Station
+      if (j === 0) {
+        dist = tl.d[0];
+      } else if (j >= nNodes) {
+        dist = tl.d[nNodes - 1];
       } else {
-        const span = next[1] - cur[2];
-        const f = span > 0 ? (sec - cur[2]) / span : 1;
-        dist = cur[3] + (next[3] - cur[3]) * Math.min(f, 1);
+        const span = times[j] - times[j - 1];
+        const f = span > 0 ? (sec - times[j - 1]) / span : 1;
+        dist = tl.d[j - 1] + (tl.d[j] - tl.d[j - 1]) * f;
       }
 
       const shape = this.network.shapes[trip.sh];
       const [lat, lon, bearing] = this._pointAt(shape, dist);
       const total = st[st.length - 1][3] - st[0][3] || 1;
 
-      // naechste Station (bei Standzeit: die aktuelle, solange nicht abgefahren)
-      const nextIdx = sec <= cur[2] ? i : Math.min(i + 1, st.length - 1);
+      // naechste Station: Knoten 2k/2k+1 gehoeren zu Halt k
+      // (waehrend der Standzeit bleibt der aktuelle Halt "naechster Halt")
+      const nextIdx = Math.min(j >> 1, st.length - 1);
       vehicles.push({
         id: trip.id,
         route: trip.r,
