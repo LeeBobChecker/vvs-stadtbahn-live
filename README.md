@@ -37,6 +37,9 @@ python3 -m http.server 8173 --directory docs
 - **Favoriten**: Haltestelle anklicken → „Als Favorit merken" → goldener
   Stern auf der Karte (immer sichtbar) + Eintrag in der Favoritenliste im
   Panel (Klick fliegt zur Station). Gespeichert im Browser (localStorage).
+- **Haltestellen-Suche**: Suchfeld im Favoriten-Abschnitt — tippen,
+  Treffer zeigen die dort haltenden Linien, per Stern direkt als Favorit
+  merken, Klick auf den Namen fliegt zur Station.
 - **Abfahrtstafel**: Für jede Favoriten-Station zeigt das Panel die
   nächsten 4 Abfahrten (Linie, Ziel, Countdown bzw. Uhrzeit), aktualisiert
   alle 10 s und an die Zeitreise gekoppelt. Endhalte zählen nicht als

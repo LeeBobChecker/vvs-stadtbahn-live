@@ -330,6 +330,68 @@ html, body {
 }
 .fav-remove:hover { background: rgba(248, 81, 73, 0.2); color: #f85149; }
 
+/* Haltestellen-Suche */
+.search-box { margin-bottom: 8px; }
+.search-box input {
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 0.8rem;
+  font-family: inherit;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  outline: none;
+}
+.search-box input:focus { border-color: rgba(88, 166, 255, 0.55); }
+.search-box input::placeholder { color: var(--text-dim); }
+
+#search-results { display: flex; flex-direction: column; gap: 2px; }
+
+.search-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.search-item:hover { background: rgba(255, 255, 255, 0.07); }
+.search-star {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  color: var(--text-dim);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.search-star:hover { background: rgba(242, 199, 68, 0.18); color: #f2c744; }
+.search-star.active { color: #f2c744; }
+.search-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.search-lines { flex: none; display: flex; gap: 3px; }
+.search-line {
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1.6;
+}
+.search-more { font-size: 0.62rem; color: var(--text-dim); align-self: center; }
+.search-empty { padding: 4px 6px; font-size: 0.72rem; color: var(--text-dim); }
+
 /* Abfahrtstafel */
 #dep-board { display: flex; flex-direction: column; gap: 12px; }
 
@@ -487,6 +549,8 @@ body.light .badge-sim { background: rgba(154, 103, 0, 0.08); }
 body.light .badge-live { background: rgba(26, 127, 55, 0.08); }
 body.light .badge-offline { background: rgba(207, 34, 46, 0.07); color: #cf222e; border-color: rgba(207, 34, 46, 0.4); }
 body.light .seg { background: rgba(0, 0, 0, 0.04); }
+body.light .search-box input { background: rgba(0, 0, 0, 0.04); }
+body.light .search-item:hover { background: rgba(0, 0, 0, 0.05); }
 body.light .veh-train svg { filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35)); }
 body.light .fav-icon {
   text-shadow: 0 0 3px rgba(255, 255, 255, 0.95), 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -513,4 +577,6 @@ body.light .leaflet-control-attribution {
     max-height: 40%;
   }
   #line-chips { grid-template-columns: repeat(8, 1fr); }
+  /* verhindert Auto-Zoom von iOS beim Fokussieren des Suchfelds */
+  .search-box input { font-size: 16px; }
 }

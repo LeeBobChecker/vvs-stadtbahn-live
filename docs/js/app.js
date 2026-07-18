@@ -286,6 +286,103 @@
     }
   }
 
+  /* ---- Haltestellen-Suche ------------------------------------------ */
+  // gleichnamige Teilstationen zu einem Sucheintrag zusammenfassen
+  const stationGroups = (() => {
+    const byName = new Map();
+    network.stations.forEach(([name, lat, lon], i) => {
+      let g = byName.get(name);
+      if (!g) {
+        g = { name, lat, lon, firstIdx: i, routes: new Set() };
+        byName.set(name, g);
+      }
+      stationRoutes[i].forEach((r) => g.routes.add(r));
+    });
+    return [...byName.values()];
+  })();
+
+  const searchInput = document.getElementById("station-search");
+  const searchResultsEl = document.getElementById("search-results");
+  const favListEl = document.getElementById("fav-list");
+
+  function renderSearch() {
+    const q = searchInput.value.trim().toLowerCase();
+    searchResultsEl.innerHTML = "";
+    favListEl.style.display = q ? "none" : "";
+    if (!q) return;
+
+    const matches = stationGroups
+      .filter((g) => g.name.toLowerCase().includes(q))
+      .sort((a, b) => {
+        const aw = a.name.toLowerCase().startsWith(q) ? 0 : 1;
+        const bw = b.name.toLowerCase().startsWith(q) ? 0 : 1;
+        return aw - bw || a.name.localeCompare(b.name, "de");
+      })
+      .slice(0, 8);
+
+    if (!matches.length) {
+      searchResultsEl.innerHTML =
+        '<div class="search-empty">Keine Haltestelle gefunden.</div>';
+      return;
+    }
+
+    for (const g of matches) {
+      const item = document.createElement("div");
+      item.className = "search-item";
+
+      const star = document.createElement("button");
+      const isFav = favNames.has(g.name);
+      star.className = "search-star" + (isFav ? " active" : "");
+      star.textContent = isFav ? "★" : "☆";
+      star.title = isFav ? "Favorit entfernen" : "Als Favorit merken";
+      star.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleFavorite(g.firstIdx);
+        renderSearch(); // Sterne in der Trefferliste auffrischen
+      });
+      item.appendChild(star);
+
+      const name = document.createElement("span");
+      name.className = "search-name";
+      name.textContent = g.name;
+      item.appendChild(name);
+
+      const lines = document.createElement("span");
+      lines.className = "search-lines";
+      const routeIdxs = [...g.routes].sort((a, b) => a - b);
+      routeIdxs.slice(0, 3).forEach((r) => {
+        const route = network.routes[r];
+        const b = document.createElement("span");
+        b.className = "search-line";
+        b.style.background = route.color;
+        b.style.color = route.textColor;
+        b.textContent = route.name;
+        lines.appendChild(b);
+      });
+      if (routeIdxs.length > 3) {
+        const more = document.createElement("span");
+        more.className = "search-more";
+        more.textContent = "+" + (routeIdxs.length - 3);
+        lines.appendChild(more);
+      }
+      item.appendChild(lines);
+
+      item.addEventListener("click", () =>
+        map.flyTo([g.lat, g.lon], Math.max(map.getZoom(), 15))
+      );
+      searchResultsEl.appendChild(item);
+    }
+  }
+
+  searchInput.addEventListener("input", renderSearch);
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      searchInput.value = "";
+      renderSearch();
+      searchInput.blur();
+    }
+  });
+
   network.stations.forEach((_, i) => makeStationMarker(i));
   renderFavList();
 
