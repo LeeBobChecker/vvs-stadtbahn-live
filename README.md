@@ -5,7 +5,12 @@ noch nicht freigeschaltet ist, werden die Fahrzeugpositionen aus dem
 GTFS-Fahrplan berechnet — die Bahnen bewegen sich also fahrplanbasiert in
 Echtzeit über die Karte.
 
-## Starten
+**➜ Live: https://leebobchecker.github.io/vvs-stadtbahn-live/**
+
+(auch mobil — einfach die URL auf dem Handy öffnen und ggf. über
+„Zum Home-Bildschirm hinzufügen" als App ablegen)
+
+## Lokal starten
 
 ```bash
 python3 -m http.server 8173 --directory docs
