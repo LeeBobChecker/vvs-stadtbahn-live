@@ -168,6 +168,7 @@
     favLayer.removeLayer(old);
     makeStationMarker(i);
     renderFavList();
+    renderDepartures();
   }
 
   function renderFavList() {
@@ -205,6 +206,83 @@
         map.flyTo([lat, lon], Math.max(map.getZoom(), 15))
       );
       listEl.appendChild(item);
+    }
+  }
+
+  /* ---- Abfahrtstafel (fuer Favoriten) ------------------------------- */
+  function renderDepartures() {
+    const section = document.getElementById("departures-section");
+    const board = document.getElementById("dep-board");
+    const favs = [...favNames].sort((a, b) => a.localeCompare(b, "de"));
+    if (!favs.length) {
+      section.hidden = true;
+      return;
+    }
+    section.hidden = false;
+
+    const now = appTime();
+    const d = new Date(now);
+    const secNow =
+      (now - new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()) /
+      1000;
+    const clock = (sec) => {
+      const s = ((sec % 86400) + 86400) % 86400;
+      return (
+        String(Math.floor(s / 3600)).padStart(2, "0") +
+        ":" +
+        String(Math.floor((s % 3600) / 60)).padStart(2, "0")
+      );
+    };
+
+    board.innerHTML = "";
+    for (const name of favs) {
+      // gleichnamige Teilstationen zusammenfassen
+      const indices = [];
+      network.stations.forEach((s, i) => {
+        if (s[0] === name) indices.push(i);
+      });
+      const deps = simulator.getDepartures(indices, now, 4);
+
+      const block = document.createElement("div");
+      let html =
+        '<div class="dep-station"><span class="fav-star">★</span>' +
+        name +
+        "</div>";
+      if (!deps.length) {
+        html +=
+          '<div class="dep-empty">Keine Abfahrten in den n&auml;chsten 2&nbsp;Stunden.</div>';
+      } else {
+        for (const dep of deps) {
+          const route = network.routes[dep.route];
+          const diffMin = Math.floor((dep.sec - secNow) / 60);
+          let timeStr;
+          let cls = "dep-time";
+          if (diffMin <= 0) {
+            timeStr = "jetzt";
+            cls += " now";
+          } else if (diffMin < 60) {
+            timeStr = diffMin + " min";
+          } else {
+            timeStr = clock(dep.sec);
+          }
+          html +=
+            '<div class="dep-row"><span class="dep-line" style="background:' +
+            route.color +
+            ";color:" +
+            route.textColor +
+            '">' +
+            route.name +
+            '</span><span class="dep-dest">' +
+            dep.headsign +
+            '</span><span class="' +
+            cls +
+            '">' +
+            timeStr +
+            "</span></div>";
+        }
+      }
+      block.innerHTML = html;
+      board.appendChild(block);
     }
   }
 
@@ -296,11 +374,13 @@
     btn.addEventListener("click", () => {
       timeOffsetMs += Number(btn.dataset.shift) * 1000;
       refreshClockLabel();
+      renderDepartures();
     });
   });
   document.getElementById("btn-now").addEventListener("click", () => {
     timeOffsetMs = 0;
     refreshClockLabel();
+    renderDepartures();
   });
   function refreshClockLabel() {
     if (timeOffsetMs === 0) {
@@ -474,6 +554,10 @@
   // 10 Hz fuer fluessige, konstante Bewegung entlang der Strecke
   setInterval(tick, 100);
   tick();
+
+  // Abfahrtstafel: initial + alle 10 s auffrischen (Countdown)
+  renderDepartures();
+  setInterval(renderDepartures, 10000);
 
   // Fuer Debugging und die spaetere API-Anbindung
   window.stadtbahn = { simulator, realtime };

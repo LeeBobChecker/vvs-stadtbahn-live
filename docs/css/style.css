@@ -330,6 +330,51 @@ html, body {
 }
 .fav-remove:hover { background: rgba(248, 81, 73, 0.2); color: #f85149; }
 
+/* Abfahrtstafel */
+#dep-board { display: flex; flex-direction: column; gap: 12px; }
+
+.dep-station {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.dep-station .fav-star { font-size: 0.78rem; }
+
+.dep-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2.5px 0;
+  font-size: 0.78rem;
+}
+.dep-line {
+  flex: none;
+  min-width: 32px;
+  text-align: center;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.55;
+}
+.dep-dest {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dep-time {
+  flex: none;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+.dep-time.now { color: var(--live); }
+.dep-empty { font-size: 0.72rem; color: var(--text-dim); line-height: 1.4; }
+
 /* Stations-Popup */
 .sp-name { font-weight: 700; font-size: 0.9rem; }
 .sp-lines { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }

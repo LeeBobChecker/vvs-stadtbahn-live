@@ -47,6 +47,7 @@ class ScheduleSimulator {
     this.trips = schedule.trips;
     this._activeCache = { key: null, trips: [] };
     this._serviceCache = new Map(); // "YYYYMMDD" -> Set<serviceIdx>
+    this._depCache = new Map(); // "YYYYMMDD:stationIdx" -> [[depSec, route, headsign]]
   }
 
   /* ---- Verkehrstage ---------------------------------------------- */
@@ -176,6 +177,56 @@ class ScheduleSimulator {
     const dLon = (lon2 - lon1) * Math.cos((lat1 * Math.PI) / 180);
     const bearing = (Math.atan2(dLon, lat2 - lat1) * 180) / Math.PI;
     return [lat, lon, (bearing + 360) % 360];
+  }
+
+  /* ---- Abfahrtstafel ----------------------------------------------- */
+
+  /**
+   * Naechste Abfahrten an einer Station.
+   * `stationIdxList`: Stations-Indizes (gleichnamige Teilstationen werden
+   * gemeinsam abgefragt). Liefert [{sec, route, headsign}], `sec` relativ
+   * zur Mitternacht des Kalendertags von `timeMs`. Endhalte einer Fahrt
+   * zaehlen nicht als Abfahrt. Basis sind Fahrplanzeiten — Verspaetungen
+   * kommen spaeter aus der Echtzeitquelle dazu.
+   */
+  getDepartures(stationIdxList, timeMs, limit = 4, horizonSec = 7200) {
+    const d = new Date(timeMs);
+    const midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const secBase = (timeMs - midnight.getTime()) / 1000;
+    const days = [
+      { date: midnight, off: 0 },
+      { date: new Date(midnight.getTime() - 86400000), off: 86400 },
+    ];
+
+    const out = [];
+    for (const day of days) {
+      const dateKey = ScheduleSimulator._dateKey(day.date);
+      const services = this._activeServices(day.date);
+      for (const idx of stationIdxList) {
+        const cacheKey = dateKey + ":" + idx;
+        let list = this._depCache.get(cacheKey);
+        if (!list) {
+          list = [];
+          for (const trip of this.trips) {
+            if (!services.has(trip.sv)) continue;
+            const st = trip.st;
+            for (let k = 0; k < st.length - 1; k++) {
+              if (st[k][0] === idx) list.push([st[k][2], trip.r, trip.hs]);
+            }
+          }
+          list.sort((a, b) => a[0] - b[0]);
+          this._depCache.set(cacheKey, list);
+        }
+        for (const [dep, route, hs] of list) {
+          const wall = dep - day.off;
+          if (wall >= secBase && wall <= secBase + horizonSec) {
+            out.push({ sec: wall, route, headsign: hs });
+          }
+        }
+      }
+    }
+    out.sort((a, b) => a.sec - b.sec);
+    return out.slice(0, limit);
   }
 
   /* ---- Hauptschnittstelle ----------------------------------------- */
