@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "stadtbahn-live",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8173", "--directory", "docs"],
+      "port": 8173
+    }
+  ]
+}
