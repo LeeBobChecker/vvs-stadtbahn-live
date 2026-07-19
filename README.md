@@ -26,10 +26,14 @@ python3 -m http.server 8173 --directory docs
   (~20 s) an jeder Station. Da die VVS-Zeiten minutengenau sind, wird je
   Fahrt eine stetige Zeit/Distanz-Kurve berechnet — auch bei
   0-Sekunden-Segmenten im Fahrplan gibt es keine Positionssprünge.
-- **Datenquellen-Schalter** Simulation ↔ Live (API): Der Live-Modus zeigt,
-  solange die Echtzeit-API nicht verbunden ist, den Status „Live — offline";
-  sobald in `docs/js/datasource.js` eine Feed-URL konfiguriert ist,
-  erscheinen dort die echten Positionen.
+- **Datenquellen-Schalter** Simulation ↔ Live: Der Live-Modus nutzt die
+  öffentliche VVS-EFA-Schnittstelle (CORS offen, kein Schlüssel nötig):
+  Abfahrtstafeln (Favoriten + Stations-Popups) zeigen Echtzeit inklusive
+  Verspätung (roter „+X"-Chip), und gematchte Verspätungen verschieben die
+  Bahnen auf der Karte (Position = Fahrplan zu „jetzt − Verspätung").
+  Abgefragt werden Favoriten und die geöffnete Station (alle 60 s,
+  gedrosselt); übrige Fahrten laufen nach Fahrplan. EFA-Ereignisse werden
+  über Linie + geplante Abfahrtsminute den GTFS-Fahrten zugeordnet.
 - **Stadtbahn-Icons**: Zug von oben in Linienfarbe, in Fahrtrichtung gedreht —
   die helle Frontscheibe zeigt, wohin der Zug fährt; die Liniennummer bleibt
   immer lesbar

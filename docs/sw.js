@@ -6,12 +6,12 @@
 
 "use strict";
 
-const CACHE = "stadtbahn-v7";
+const CACHE = "stadtbahn-v8";
 const SHELL = [
   "index.html",
-  "css/style.css?v=7",
-  "js/datasource.js?v=7",
-  "js/app.js?v=7",
+  "css/style.css?v=8",
+  "js/datasource.js?v=8",
+  "js/app.js?v=8",
   "data/network.json",
   "data/schedule.json",
   "manifest.webmanifest",

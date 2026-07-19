@@ -130,7 +130,9 @@ class ScheduleSimulator {
       for (const day of days) {
         if (!day.services.has(trip.sv)) continue;
         const sec = secToday + day.off;
-        if (sec >= first[2] - 15 && sec <= last[1] + 15) {
+        // grosszuegiger Nachlauf: verspaetete Fahrten laufen nach dem
+        // planmaessigen Ende weiter (exakte Pruefung in getVehicles)
+        if (sec >= first[2] - 15 && sec <= last[1] + 1215) {
           result.push({ trip, off: day.off });
         }
       }
@@ -254,15 +256,23 @@ class ScheduleSimulator {
 
   /* ---- Hauptschnittstelle ----------------------------------------- */
 
-  /** @returns {Array} Fahrzeugliste im oben beschriebenen Format */
-  getVehicles(timeMs) {
+  /**
+   * @param {number} timeMs  Zeitpunkt
+   * @param {Map<string,number>|null} delays  optionale Verspaetungen je
+   *        Fahrt-ID in Sekunden (aus der Echtzeitquelle): die Position wird
+   *        auf der Fahrplan-Kurve zu (jetzt - Verspaetung) ausgewertet.
+   * @returns {Array} Fahrzeugliste im oben beschriebenen Format
+   */
+  getVehicles(timeMs, delays = null) {
     const d = new Date(timeMs);
     const midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     const secBase = (timeMs - midnight) / 1000;
 
     const vehicles = [];
     for (const { trip, off } of this._activeTrips(timeMs)) {
-      const sec = secBase + off;
+      const delay = delays ? delays.get(trip.id) || 0 : 0;
+      const hasLive = delays ? delays.has(trip.id) : false;
+      const sec = secBase + off - delay;
       const st = trip.st; // [stationIdx, arr, dep, dist]
       // exakte Aktivitaetspruefung (Kandidatenliste hat Randpuffer)
       if (sec < st[0][2] || sec > st[st.length - 1][1]) continue;
@@ -306,9 +316,10 @@ class ScheduleSimulator {
         bearing,
         headsign: trip.hs,
         nextStop: this.network.stations[st[nextIdx][0]][0],
-        nextStopTime: st[nextIdx][1],
+        nextStopTime: st[nextIdx][1] + delay,
         progress: (dist - st[0][3]) / total,
-        realtime: false,
+        delaySec: delay,
+        realtime: hasLive,
       });
     }
     return vehicles;
@@ -316,65 +327,162 @@ class ScheduleSimulator {
 }
 
 /* ================================================================== */
-/*  Echtzeit-Adapter (vorbereitet)                                    */
+/*  Echtzeit ueber die oeffentliche VVS-EFA-Schnittstelle             */
 /* ================================================================== */
 
 /**
- * Adapter fuer die VVS-Echtzeitdaten — wird aktiviert, sobald der
- * API-Zugang vorliegt.
- *
- * Erwartete Varianten (je nachdem, was der VVS freischaltet):
- *
- * 1. GTFS-Realtime "VehiclePositions" (Protobuf):
- *    - Feed-URL pollen (alle ~15 s), mit gtfs-realtime-bindings dekodieren.
- *    - entity.vehicle.trip.tripId auf unsere trip_ids mappen,
- *      entity.vehicle.position.{latitude,longitude,bearing} uebernehmen.
- *    - Browser-CORS erfordert i.d.R. einen kleinen lokalen Proxy
- *      (siehe tools/, kann bei API-Erhalt ergaenzt werden).
- *
- * 2. GTFS-Realtime "TripUpdates" (nur Verspaetungen, keine Positionen):
- *    - Verspaetung je trip_id extrahieren und an den ScheduleSimulator
- *      durchreichen: Position = Fahrplanposition zu (jetzt - delay).
- *
- * 3. EFA-/TRIAS-Schnittstelle (JSON/XML Abfahrtsmonitor):
- *    - Wie (2) ueber Verspaetungen je Fahrt.
- *
- * Die App nutzt automatisch diese Quelle statt der Simulation, sobald
- * `available()` true liefert (siehe app.js).
+ * Live-Quelle: fragt den Abfahrtsmonitor der VVS-EFA-API ab (CORS ist
+ * offen, kein Schluessel noetig) und liefert
+ *  - Live-Abfahrten je Station (inkl. Verspaetung) und
+ *  - eine Verspaetungs-Karte je Fahrt-ID, mit der der Simulator die
+ *    Bahnen auf der Karte verschiebt (Position zu "jetzt - delay").
+ * EFA-Ereignisse werden ueber Linie + geplante Abfahrtsminute auf die
+ * GTFS-Fahrten gematcht.
  */
-class RealtimeSource {
+class EfaRealtime {
+  static ENDPOINT = "https://www3.vvs.de/mngvvs/XML_DM_REQUEST";
+  static REFRESH_MS = 45000; // je Station hoechstens alle 45 s abfragen
+  static MAX_AGE_MS = 180000; // Daten verfallen nach 3 min
+
   /**
-   * @param {string} feedUrl  URL des Echtzeit-Feeds (kommt vom VVS)
-   * @param {ScheduleSimulator} fallback  Simulator fuer Fahrplan-Fallback
+   * @param {Object} network  Inhalt von data/network.json
+   * @param {ScheduleSimulator} simulator
    */
-  constructor(feedUrl, fallback) {
-    this.feedUrl = feedUrl;
-    this.fallback = fallback;
-    this.lastFetch = 0;
-    this.vehicles = [];
+  constructor(network, simulator) {
+    this.network = network;
+    this.simulator = simulator;
+    this._stations = new Map(); // stationIdx -> {time, rows}
+    this._delays = new Map(); // tripId -> {delaySec, time}
+    this._pending = new Map(); // stationIdx -> Promise
+    this.onUpdate = null; // Callback bei neuen Daten
+    this.lastSuccess = 0;
+    this.lastError = null;
   }
 
-  /** true, sobald ein Feed konfiguriert ist. */
   available() {
-    return Boolean(this.feedUrl);
+    return true;
   }
 
-  async poll() {
-    if (!this.available()) return;
-    // TODO (sobald API-Zugang da ist):
-    //   const res = await fetch(this.feedUrl);
-    //   const buf = await res.arrayBuffer();
-    //   const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(
-    //     new Uint8Array(buf));
-    //   this.vehicles = feed.entity.map(...);
-    throw new Error("Echtzeit-API noch nicht konfiguriert");
+  /** Aktuelle Verspaetungen (Sekunden) je Fahrt-ID. */
+  delays() {
+    const now = Date.now();
+    const m = new Map();
+    this._delays.forEach((v, k) => {
+      if (now - v.time < EfaRealtime.MAX_AGE_MS) m.set(k, v.delaySec);
+    });
+    return m;
   }
 
+  /** Fahrzeuge = Fahrplan-Kurve, um bekannte Verspaetungen verschoben. */
   getVehicles(timeMs) {
-    // Bis zur Anbindung: leere Liste (app.js nutzt dann die Simulation).
-    return this.vehicles;
+    return this.simulator.getVehicles(timeMs, this.delays());
+  }
+
+  /**
+   * Live-Abfahrten fuer Stations-Indizes aus dem Cache — oder null,
+   * wenn (noch) keine frischen Daten vorliegen.
+   * Zeilen: {sec, planSec, delayMin, linie, ziel, trip|null}
+   */
+  getLiveDepartures(indices, timeMs, limit = 4) {
+    const now = Date.now();
+    const rows = [];
+    let any = false;
+    for (const idx of indices) {
+      const c = this._stations.get(idx);
+      if (c && now - c.time < EfaRealtime.MAX_AGE_MS) {
+        any = true;
+        rows.push(...c.rows);
+      }
+    }
+    if (!any) return null;
+    const d = new Date(timeMs);
+    const midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const secNow = (timeMs - midnight) / 1000;
+    return rows
+      .filter((r) => r.sec >= secNow - 30)
+      .sort((a, b) => a.sec - b.sec)
+      .slice(0, limit);
+  }
+
+  /** Station abfragen (gedrosselt); loest onUpdate aus. */
+  refreshStation(idx, timeMs) {
+    const cached = this._stations.get(idx);
+    if (cached && Date.now() - cached.time < EfaRealtime.REFRESH_MS) {
+      return Promise.resolve();
+    }
+    if (this._pending.has(idx)) return this._pending.get(idx);
+    const p = this._fetchStation(idx, timeMs)
+      .then(() => {
+        this.lastSuccess = Date.now();
+        this.lastError = null;
+        if (this.onUpdate) this.onUpdate();
+      })
+      .catch((err) => {
+        this.lastError = err;
+        if (this.onUpdate) this.onUpdate();
+      })
+      .finally(() => {
+        this._pending.delete(idx);
+      });
+    this._pending.set(idx, p);
+    return p;
+  }
+
+  async _fetchStation(idx, timeMs) {
+    const stationId = this.network.stations[idx][3];
+    if (!stationId) throw new Error("Station ohne ID");
+    const params = new URLSearchParams({
+      SpEncId: "0",
+      coordOutputFormat: "EPSG:4326",
+      limit: "12",
+      mode: "direct",
+      name_dm: stationId,
+      outputFormat: "rapidJSON",
+      type_dm: "any",
+      useRealtime: "1",
+      version: "10.2.10",
+    });
+    const res = await fetch(EfaRealtime.ENDPOINT + "?" + params.toString());
+    if (!res.ok) throw new Error("EFA-Antwort " + res.status);
+    const data = await res.json();
+
+    const d = new Date(timeMs);
+    const midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    // Fahrplan-Abfahrten der Station, um Fahrt-IDs zuzuordnen
+    const sched = this.simulator.getDepartures([idx], timeMs, 40, 3 * 3600);
+
+    const rows = [];
+    for (const ev of data.stopEvents || []) {
+      const tr = ev.transportation || {};
+      const linie = tr.number || "?";
+      if (!linie.startsWith("U")) continue; // nur Stadtbahn
+      const planIso = ev.departureTimePlanned;
+      const estIso = ev.departureTimeEstimated || planIso;
+      if (!planIso) continue;
+      const planSec = (new Date(planIso).getTime() - midnight) / 1000;
+      const estSec = (new Date(estIso).getTime() - midnight) / 1000;
+
+      const match = sched.find(
+        (s) =>
+          Math.abs(s.sec - planSec) < 30 &&
+          this.network.routes[s.trip.r].name === linie
+      );
+      const delaySec = Math.round(estSec - planSec);
+      if (match) {
+        this._delays.set(match.trip.id, { delaySec, time: Date.now() });
+      }
+      rows.push({
+        sec: estSec,
+        planSec,
+        delayMin: Math.round(delaySec / 60),
+        linie,
+        ziel: (tr.destination || {}).name || "",
+        trip: match ? match.trip : null,
+      });
+    }
+    this._stations.set(idx, { time: Date.now(), rows });
   }
 }
 
 window.ScheduleSimulator = ScheduleSimulator;
-window.RealtimeSource = RealtimeSource;
+window.EfaRealtime = EfaRealtime;

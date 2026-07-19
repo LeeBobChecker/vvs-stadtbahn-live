@@ -15,7 +15,7 @@
   const schedule = ScheduleSimulator.decodeSchedule(scheduleRaw);
 
   const simulator = new ScheduleSimulator(network, schedule);
-  const realtime = new RealtimeSource(null /* Feed-URL folgt */, simulator);
+  const realtime = new EfaRealtime(network, simulator);
 
   /* ---- Theme (hell/dunkel) ---------------------------------------- */
   const THEME_KEY = "stadtbahn-theme";
@@ -95,6 +95,74 @@
     for (const s of trip.st) stationRoutes[s[0]].add(trip.r);
   }
 
+  // Linienname -> Linie (fuer Live-Abfahrten, deren Zeilen nur den Namen tragen)
+  const routesByName = new Map(network.routes.map((r) => [r.name, r]));
+  let openStationIdx = null; // Station mit offenem Popup (fuer Live-Abfragen)
+
+  /** Einheitliche Abfahrts-Zeile fuer Tafel und Stations-Popup.
+   *  row: {sec, linie, ziel, trip|null, delayMin|null} */
+  function depRowHtml(row, secNow) {
+    const route = routesByName.get(row.linie);
+    const color = route ? route.color : "#888888";
+    const textColor = route ? route.textColor : "#ffffff";
+    const diffMin = Math.floor((row.sec - secNow) / 60);
+    let timeStr;
+    let cls = "dep-time";
+    if (diffMin <= 0) {
+      timeStr = "jetzt";
+      cls += " now";
+    } else if (diffMin < 60) {
+      timeStr = diffMin + " min";
+    } else {
+      const s = ((row.sec % 86400) + 86400) % 86400;
+      timeStr =
+        String(Math.floor(s / 3600)).padStart(2, "0") +
+        ":" +
+        String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+    }
+    const delay =
+      row.delayMin != null && row.delayMin > 0
+        ? '<span class="dep-delay">+' + row.delayMin + "</span>"
+        : "";
+    return (
+      '<div class="dep-row"' +
+      (row.trip
+        ? ' data-trip="' + row.trip.id + '" title="Bahn auf der Karte zeigen"'
+        : "") +
+      '><span class="dep-line" style="background:' +
+      color +
+      ";color:" +
+      textColor +
+      '">' +
+      row.linie +
+      '</span><span class="dep-dest">' +
+      row.ziel +
+      "</span>" +
+      delay +
+      '<span class="' +
+      cls +
+      '">' +
+      timeStr +
+      "</span></div>"
+    );
+  }
+
+  /** Abfahrten fuer Stations-Indizes: live (falls Modus + Daten), sonst Fahrplan. */
+  function departureRows(indices, now, limit) {
+    if (sourceMode === "live") {
+      const live = realtime.getLiveDepartures(indices, now, limit);
+      if (live) return live;
+      indices.forEach((ix) => realtime.refreshStation(ix, now));
+    }
+    return simulator.getDepartures(indices, now, limit).map((dep) => ({
+      sec: dep.sec,
+      linie: network.routes[dep.trip.r].name,
+      ziel: dep.trip.hs,
+      trip: dep.trip,
+      delayMin: null,
+    }));
+  }
+
   const stationLayer = L.layerGroup().addTo(map); // normale Halte (zoomabhaengig)
   const favLayer = L.layerGroup().addTo(map);     // Favoriten (immer sichtbar)
   const stationMarkers = new Array(network.stations.length).fill(null);
@@ -123,25 +191,23 @@
     const secNow =
       (now - new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()) /
       1000;
-    let depHtml = "";
-    for (const dep of simulator.getDepartures(indices, now, 3)) {
-      const route = network.routes[dep.trip.r];
-      const diffMin = Math.floor((dep.sec - secNow) / 60);
-      const timeStr =
-        diffMin <= 0
-          ? "jetzt"
-          : diffMin < 60
-            ? diffMin + " min"
-            : String(Math.floor(((dep.sec / 3600) % 24))).padStart(2, "0") +
-              ":" +
-              String(Math.floor((dep.sec % 3600) / 60)).padStart(2, "0");
-      depHtml +=
-        '<div class="dep-row" data-trip="' + dep.trip.id +
-        '" title="Bahn auf der Karte zeigen"><span class="dep-line" style="background:' +
-        route.color + ";color:" + route.textColor + '">' + route.name +
-        '</span><span class="dep-dest">' + dep.trip.hs +
-        '</span><span class="dep-time' + (diffMin <= 0 ? " now" : "") + '">' +
-        timeStr + "</span></div>";
+    const depHtml = departureRows(indices, now, 3)
+      .map((row) => depRowHtml(row, secNow))
+      .join("");
+
+    // Im Live-Modus: sobald die EFA-Daten da sind, Zeilen ersetzen
+    if (sourceMode === "live") {
+      Promise.all(indices.map((ix) => realtime.refreshStation(ix, now))).then(
+        () => {
+          const live = realtime.getLiveDepartures(indices, appTime(), 3);
+          const depsEl = el.querySelector(".sp-deps");
+          if (live && live.length && depsEl) {
+            depsEl.innerHTML = live
+              .map((row) => depRowHtml(row, secNow))
+              .join("");
+          }
+        }
+      );
     }
 
     el.innerHTML =
@@ -196,6 +262,13 @@
         autoPanPaddingTopLeft: L.point(24, 110),
         autoPanPaddingBottomRight: L.point(24, 40),
       });
+    // offene Station merken (wird im Live-Modus mitabgefragt)
+    marker.on("popupopen", () => {
+      openStationIdx = i;
+    });
+    marker.on("popupclose", () => {
+      if (openStationIdx === i) openStationIdx = null;
+    });
     stationMarkers[i] = marker;
   }
 
@@ -252,7 +325,6 @@
 
   /* ---- Abfahrtstafel (fuer Favoriten) ------------------------------- */
   function renderDepartures() {
-    if (document.hidden) return; // Tab im Hintergrund: Akku schonen
     const section = document.getElementById("departures-section");
     const board = document.getElementById("dep-board");
     const favs = [...favNames].sort((a, b) => a.localeCompare(b, "de"));
@@ -267,14 +339,6 @@
     const secNow =
       (now - new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()) /
       1000;
-    const clock = (sec) => {
-      const s = ((sec % 86400) + 86400) % 86400;
-      return (
-        String(Math.floor(s / 3600)).padStart(2, "0") +
-        ":" +
-        String(Math.floor((s % 3600) / 60)).padStart(2, "0")
-      );
-    };
 
     board.innerHTML = "";
     for (const name of favs) {
@@ -283,47 +347,18 @@
       network.stations.forEach((s, i) => {
         if (s[0] === name) indices.push(i);
       });
-      const deps = simulator.getDepartures(indices, now, 4);
+      const rows = departureRows(indices, now, 4);
 
       const block = document.createElement("div");
       let html =
         '<div class="dep-station"><span class="fav-star">★</span>' +
         name +
         "</div>";
-      if (!deps.length) {
+      if (!rows.length) {
         html +=
           '<div class="dep-empty">Keine Abfahrten in den n&auml;chsten 2&nbsp;Stunden.</div>';
       } else {
-        for (const dep of deps) {
-          const route = network.routes[dep.trip.r];
-          const diffMin = Math.floor((dep.sec - secNow) / 60);
-          let timeStr;
-          let cls = "dep-time";
-          if (diffMin <= 0) {
-            timeStr = "jetzt";
-            cls += " now";
-          } else if (diffMin < 60) {
-            timeStr = diffMin + " min";
-          } else {
-            timeStr = clock(dep.sec);
-          }
-          html +=
-            '<div class="dep-row" data-trip="' +
-            dep.trip.id +
-            '" title="Bahn auf der Karte zeigen"><span class="dep-line" style="background:' +
-            route.color +
-            ";color:" +
-            route.textColor +
-            '">' +
-            route.name +
-            '</span><span class="dep-dest">' +
-            dep.trip.hs +
-            '</span><span class="' +
-            cls +
-            '">' +
-            timeStr +
-            "</span></div>";
-        }
+        html += rows.map((row) => depRowHtml(row, secNow)).join("");
       }
       block.innerHTML = html;
       board.appendChild(block);
@@ -625,14 +660,20 @@
       v.nextStop +
       "</b> &middot; " +
       fmtTime(v.nextStopTime) +
-      " Uhr</div>" +
+      " Uhr" +
+      (v.delaySec >= 60
+        ? ' <span class="dep-delay">+' + Math.round(v.delaySec / 60) + "</span>"
+        : "") +
+      "</div>" +
       '<button class="pp-follow" data-trip="' +
       v.id +
       '">' +
       (followId === v.id ? "Nicht mehr folgen" : "Dieser Bahn folgen") +
       "</button>" +
       '<div class="pp-src">' +
-      (v.realtime ? "Echtzeitdaten" : "Fahrplan-Simulation &mdash; Echtzeit-API folgt") +
+      (v.realtime
+        ? "Echtzeitdaten (VVS)"
+        : "Fahrplan" + (sourceMode === "live" ? " &mdash; keine Echtzeit fuer diese Fahrt" : "-Simulation")) +
       "</div>"
     );
   }
@@ -787,27 +828,58 @@
 
   function refreshSourceInfo() {
     if (sourceMode === "live") {
-      if (realtime.available()) {
+      const broken =
+        realtime.lastError &&
+        Date.now() - realtime.lastSuccess > 3 * 60 * 1000;
+      if (broken) {
+        badgeEl.textContent = "Live — Störung";
+        badgeEl.className = "badge badge-offline";
+        badgeEl.title = "Die VVS-Echtzeitschnittstelle antwortet gerade nicht.";
+        sourceHintEl.textContent =
+          "Echtzeitdaten derzeit nicht erreichbar — Anzeige nach Fahrplan.";
+      } else {
         badgeEl.textContent = "Live";
         badgeEl.className = "badge badge-live";
-        badgeEl.title = "Echtzeitpositionen aus der VVS-API.";
-        sourceHintEl.textContent = "Echtzeitpositionen aus der VVS-API.";
-      } else {
-        badgeEl.textContent = "Live — offline";
-        badgeEl.className = "badge badge-offline";
-        badgeEl.title = "Die Echtzeit-API ist noch nicht verbunden.";
+        badgeEl.title =
+          "Echtzeit-Abfahrten und Verspätungen über die VVS-Schnittstelle.";
         sourceHintEl.textContent =
-          "Echtzeit-API noch nicht verbunden — sobald der VVS-Zugang freigeschaltet ist, erscheinen hier die echten Positionen.";
+          "Echtzeit (VVS) für Favoriten und geöffnete Stationen — Verspätungen verschieben die Bahnen auf der Karte. Übrige Fahrten nach Fahrplan.";
       }
     } else {
       badgeEl.textContent = "Fahrplan-Simulation";
       badgeEl.className = "badge badge-sim";
       badgeEl.title =
-        "Positionen werden aus dem GTFS-Fahrplan berechnet. Sobald die Echtzeit-API freigeschaltet ist, liefert der Live-Modus echte Daten.";
+        "Positionen werden aus dem GTFS-Fahrplan berechnet — ohne Echtzeit-Verspätungen.";
       sourceHintEl.textContent =
         "Positionen werden aus dem GTFS-Fahrplan berechnet.";
     }
   }
+
+  /* Live-Modus: Favoriten + geoeffnete Station regelmaessig abfragen */
+  function watchedStationIndices() {
+    const set = new Set();
+    network.stations.forEach((s, i) => {
+      if (favNames.has(s[0])) set.add(i);
+    });
+    if (openStationIdx !== null) {
+      const name = network.stations[openStationIdx][0];
+      network.stations.forEach((s, i) => {
+        if (s[0] === name) set.add(i);
+      });
+    }
+    return [...set];
+  }
+
+  function liveRefresh() {
+    if (sourceMode !== "live") return;
+    watchedStationIndices().forEach((i) => realtime.refreshStation(i, appTime()));
+  }
+  setInterval(liveRefresh, 60000);
+
+  realtime.onUpdate = () => {
+    renderDepartures();
+    refreshSourceInfo();
+  };
 
   document.querySelectorAll("#source-toggle .seg-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -816,26 +888,41 @@
         .querySelectorAll("#source-toggle .seg-btn")
         .forEach((b) => b.classList.toggle("active", b === btn));
       refreshSourceInfo();
+      renderDepartures();
+      if (sourceMode === "live") liveRefresh();
       tick();
     });
   });
   refreshSourceInfo();
 
   /* ---- Animationsschleife ------------------------------------------ */
+  // Tab im Hintergrund: nicht stoppen, sondern auf 1 Tick / 5 s drosseln.
+  // (Manche eingebettete Webviews melden dauerhaft "hidden" — ein hartes
+  // Stoppen wuerde die App dort komplett einfrieren.)
+  let lastHiddenTick = 0;
   function tick() {
-    if (document.hidden) return; // Tab im Hintergrund: Akku schonen
+    if (document.hidden) {
+      const nowMs = Date.now();
+      if (nowMs - lastHiddenTick < 5000) return;
+      lastHiddenTick = nowMs;
+    }
     const now = appTime();
 
     const source = sourceMode === "live" ? realtime : simulator;
     const vehicles = source.getVehicles(now).filter((v) => enabledRoutes.has(v.route));
 
     // nur Bahnen im (grosszuegig erweiterten) Kartenausschnitt rendern;
-    // verfolgte Bahnen und offene Popups bleiben immer erhalten
-    const bounds = map.getBounds().pad(0.2);
+    // verfolgte Bahnen und offene Popups bleiben immer erhalten.
+    // Bei 0-Groesse (Karte noch nicht ausgelegt, z. B. verstecktes
+    // iframe) ist die Bounds-Pruefung wertlos — dann alle rendern.
+    const mapSize = map.getSize();
+    const bounds =
+      mapSize.x > 0 && mapSize.y > 0 ? map.getBounds().pad(0.2) : null;
     const seen = new Set();
     for (const v of vehicles) {
       const existing = markers.get(v.id);
       const visible =
+        !bounds ||
         v.id === followId ||
         bounds.contains([v.lat, v.lon]) ||
         (existing && existing.marker.isPopupOpen());
@@ -880,10 +967,15 @@
 
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
+      map.invalidateSize({ pan: false });
       tick();
       renderDepartures();
     }
   });
+  // Eingebettete Ansichten (z. B. Dashboard-iframes) melden Groessen-
+  // aenderungen nicht immer zuverlaessig — regelmaessig nachpruefen
+  // (no-op, solange sich die Groesse nicht geaendert hat).
+  setInterval(() => map.invalidateSize({ pan: false }), 10000);
 
   // 10 Hz fuer fluessige, konstante Bewegung entlang der Strecke
   setInterval(tick, 100);

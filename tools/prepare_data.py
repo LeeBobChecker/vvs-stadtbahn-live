@@ -127,6 +127,7 @@ def main():
             st["name"],
             round(sum(st["lats"]) / len(st["lats"]), 6),
             round(sum(st["lons"]) / len(st["lons"]), 6),
+            k,  # IFOPT-Stations-ID (fuer Echtzeit-Abfragen der EFA-API)
         ])
     print(f"Stationen: {len(stations_out)}", file=sys.stderr)
 
