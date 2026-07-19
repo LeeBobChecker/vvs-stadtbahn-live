@@ -146,6 +146,18 @@ html, body {
 .panel-section { padding: 12px 14px; }
 .panel-section + .panel-section { border-top: 1px solid var(--panel-border); }
 
+/* eingeklappter Zustand (Umschalter in der Kopfleiste) */
+#panel { transition: transform 0.28s ease, opacity 0.28s ease; }
+body.panel-collapsed #panel {
+  transform: translateX(-115%);
+  opacity: 0;
+  pointer-events: none;
+}
+#btn-panel.panel-hidden {
+  color: var(--accent);
+  border-color: rgba(88, 166, 255, 0.5);
+}
+
 .panel-heading {
   display: flex;
   align-items: center;
@@ -383,7 +395,19 @@ html, body {
   background: #1a73e8;
   border: 3px solid #fff;
   border-radius: 50%;
-  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.35), 0 1px 6px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+}
+.user-dot::after {
+  content: "";
+  position: absolute;
+  inset: -9px;
+  border-radius: 50%;
+  border: 2px solid rgba(26, 115, 232, 0.6);
+  animation: user-pulse 2s ease-out infinite;
+}
+@keyframes user-pulse {
+  0% { transform: scale(0.55); opacity: 1; }
+  100% { transform: scale(1.45); opacity: 0; }
 }
 #btn-locate { font-size: 16px; }
 
@@ -678,8 +702,20 @@ body.light .leaflet-control-attribution {
 
 /* ---------- Mobil ---------- */
 @media (max-width: 640px) {
-  #topbar { left: 8px; right: 8px; top: 8px; padding: 8px 12px; }
-  .brand-text h1 { font-size: 0.9rem; }
+  #topbar { left: 8px; right: 8px; top: 8px; padding: 8px 10px; gap: 8px; }
+  .brand { gap: 8px; flex: 1; }
+  .brand-logo { width: 30px; height: 30px; font-size: 17px; }
+  .brand-text { min-width: 0; }
+  .brand-text h1 {
+    font-size: 0.85rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .badge { font-size: 0.6rem; }
+  .topbar-right { gap: 10px; flex: none; }
+  .stat span { font-size: 0.95rem; }
+  .stat label { font-size: 0.58rem; }
+  .icon-btn { width: 32px; height: 32px; font-size: 15px; }
   #panel {
     top: auto;
     bottom: 8px;
@@ -691,4 +727,6 @@ body.light .leaflet-control-attribution {
   #line-chips { grid-template-columns: repeat(8, 1fr); }
   /* verhindert Auto-Zoom von iOS beim Fokussieren des Suchfelds */
   .search-box input { font-size: 16px; }
+  /* Bottom-Sheet klappt nach unten weg */
+  body.panel-collapsed #panel { transform: translateY(130%); }
 }

@@ -6,12 +6,12 @@
 
 "use strict";
 
-const CACHE = "stadtbahn-v6";
+const CACHE = "stadtbahn-v7";
 const SHELL = [
   "index.html",
-  "css/style.css?v=6",
-  "js/datasource.js?v=6",
-  "js/app.js?v=6",
+  "css/style.css?v=7",
+  "js/datasource.js?v=7",
+  "js/app.js?v=7",
   "data/network.json",
   "data/schedule.json",
   "manifest.webmanifest",
@@ -51,10 +51,12 @@ self.addEventListener("fetch", (e) => {
   // Kartenkacheln nicht cachen (zu viele, Netz ist ohnehin noetig)
   if (url.hostname.endsWith("cartocdn.com")) return;
 
-  // Seitenaufrufe: erst Netz (damit Updates ankommen), sonst Cache
+  // Seitenaufrufe: erst Netz (damit Updates ankommen), sonst Cache.
+  // cache: "no-cache" zwingt zur Revalidierung beim Server — sonst wuerde
+  // "Netz" still aus dem HTTP-Cache des Browsers bedient.
   if (req.mode === "navigate") {
     e.respondWith(
-      fetch(req)
+      fetch(req.url, { cache: "no-cache" })
         .then((res) => {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put("index.html", copy));
@@ -65,10 +67,10 @@ self.addEventListener("fetch", (e) => {
     return;
   }
 
-  // Alles andere: Cache zuerst, parallel im Hintergrund aktualisieren
+  // Alles andere: Cache zuerst, parallel im Hintergrund frisch nachladen
   e.respondWith(
     caches.match(req).then((cached) => {
-      const fresh = fetch(req)
+      const fresh = fetch(req.url, { cache: "no-cache" })
         .then((res) => {
           if (res.ok) {
             const copy = res.clone();

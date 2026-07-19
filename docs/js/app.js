@@ -472,6 +472,22 @@
   );
   refreshThemeBtn();
 
+  /* ---- Bedienfeld ein-/ausklappen ----------------------------------- */
+  const PANEL_KEY = "stadtbahn-panel";
+  const panelBtn = document.getElementById("btn-panel");
+
+  function setPanelCollapsed(collapsed, save = true) {
+    document.body.classList.toggle("panel-collapsed", collapsed);
+    panelBtn.classList.toggle("panel-hidden", collapsed);
+    panelBtn.title = collapsed ? "Bedienfeld einblenden" : "Bedienfeld ausblenden";
+    if (save) localStorage.setItem(PANEL_KEY, collapsed ? "zu" : "auf");
+  }
+
+  panelBtn.addEventListener("click", () =>
+    setPanelCollapsed(!document.body.classList.contains("panel-collapsed"))
+  );
+  setPanelCollapsed(localStorage.getItem(PANEL_KEY) === "zu", false);
+
   /* ---- UI: Linien-Filter ------------------------------------------ */
   const enabledRoutes = new Set(network.routes.map((_, i) => i));
   const chipsEl = document.getElementById("line-chips");
@@ -674,6 +690,8 @@
 
   /* ---- Mein Standort ------------------------------------------------ */
   let userMarker = null;
+  let userCircle = null;
+  let geoWatchId = null;
   const locateControl = L.control({ position: "bottomright" });
   locateControl.onAdd = () => {
     const div = L.DomUtil.create("div", "leaflet-bar");
@@ -687,6 +705,28 @@
   };
   locateControl.addTo(map);
 
+  function showUserPosition(lat, lon, accuracy) {
+    if (!userMarker) {
+      userMarker = L.marker([lat, lon], {
+        icon: L.divIcon({ className: "user-dot", iconSize: [18, 18], iconAnchor: [9, 9] }),
+        interactive: false,
+        zIndexOffset: 700,
+      }).addTo(map);
+      userCircle = L.circle([lat, lon], {
+        radius: accuracy || 0,
+        color: "#1a73e8",
+        weight: 1,
+        opacity: 0.4,
+        fillColor: "#1a73e8",
+        fillOpacity: 0.08,
+        interactive: false,
+      }).addTo(map);
+    } else {
+      userMarker.setLatLng([lat, lon]);
+      userCircle.setLatLng([lat, lon]).setRadius(accuracy || 0);
+    }
+  }
+
   function locateMe() {
     if (!navigator.geolocation) {
       toast("Standortabfrage wird von diesem Browser nicht unterstützt.");
@@ -696,14 +736,19 @@
       (pos) => {
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
-        if (!userMarker) {
-          userMarker = L.marker([lat, lon], {
-            icon: L.divIcon({ className: "user-dot", iconSize: [16, 16], iconAnchor: [8, 8] }),
-            interactive: false,
-            zIndexOffset: 600,
-          }).addTo(map);
-        } else {
-          userMarker.setLatLng([lat, lon]);
+        showUserPosition(lat, lon, pos.coords.accuracy);
+        // Position ab jetzt laufend nachfuehren
+        if (geoWatchId === null && navigator.geolocation.watchPosition) {
+          geoWatchId = navigator.geolocation.watchPosition(
+            (p) =>
+              showUserPosition(
+                p.coords.latitude,
+                p.coords.longitude,
+                p.coords.accuracy
+              ),
+            () => {},
+            { enableHighAccuracy: true }
+          );
         }
         // naechstgelegene Haltestelle suchen und ihr Popup (mit Abfahrten) oeffnen
         let best = -1;
@@ -727,7 +772,7 @@
       (err) => {
         toast(
           err.code === 1
-            ? "Standortfreigabe wurde abgelehnt."
+            ? "Standortfreigabe wurde abgelehnt — bitte in den Browser-Einstellungen erlauben."
             : "Standort nicht verfügbar."
         );
       },
@@ -851,9 +896,19 @@
   // Fuer Debugging und die spaetere API-Anbindung
   window.stadtbahn = { simulator, realtime, map, stationMarkers };
 
-  // PWA: Service Worker fuer Offline-Cache und schnelle Wiederbesuche
+  // PWA: Service Worker fuer Offline-Cache und schnelle Wiederbesuche.
+  // Uebernimmt eine neue Version die Kontrolle, wird einmal neu geladen,
+  // damit Updates sofort sichtbar sind (nicht erst beim uebernaechsten Besuch).
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").catch(() => {});
+    const hadController = Boolean(navigator.serviceWorker.controller);
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (hadController && !reloaded) {
+        reloaded = true;
+        location.reload();
+      }
+    });
   }
 
   document.getElementById("loading").classList.add("hidden");

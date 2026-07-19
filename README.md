@@ -47,8 +47,11 @@ python3 -m http.server 8173 --directory docs
 - **Stations-Popup** mit allen Linien, die dort halten
 - **Hell-/Dunkelmodus**: Umschalter oben rechts (☀/☾), wechselt Karte und
   Oberfläche. Startet passend zur Systemeinstellung, die Wahl wird gespeichert.
-- **Mein Standort** (◎ unten rechts): zeigt die eigene Position, findet die
-  nächstgelegene Haltestelle und öffnet deren Popup mit Abfahrten.
+- **Mein Standort** (◎ unten rechts): blauer Punkt mit Puls-Ring und
+  Genauigkeitskreis, wird laufend nachgeführt; findet die nächstgelegene
+  Haltestelle und öffnet deren Popup mit Abfahrten.
+- **Bedienfeld einklappbar** (☰ oben rechts): blendet das Panel aus, damit
+  die Karte den ganzen Bildschirm nutzt; Zustand wird gespeichert.
 - **Bahn verfolgen**: Klick auf eine Abfahrt (Tafel oder Stations-Popup) oder
   auf „Dieser Bahn folgen" im Fahrzeug-Popup — die Karte bleibt an der Bahn,
   Chip oben zeigt Linie/Ziel, Beenden per ✕ oder Karte ziehen.
