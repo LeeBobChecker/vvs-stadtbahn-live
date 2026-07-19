@@ -843,7 +843,7 @@
         badgeEl.title =
           "Echtzeit-Abfahrten und Verspätungen über die VVS-Schnittstelle.";
         sourceHintEl.textContent =
-          "Echtzeit (VVS) für Favoriten und geöffnete Stationen — Verspätungen verschieben die Bahnen auf der Karte. Übrige Fahrten nach Fahrplan.";
+          "Echtzeit (VVS) für alle Bahnen: Verspätungen werden stationsweise abgefragt und verschieben die Bahnen auf der Karte; Abfahrtstafeln zeigen Echtzeit.";
       }
     } else {
       badgeEl.textContent = "Fahrplan-Simulation";
@@ -872,7 +872,9 @@
 
   function liveRefresh() {
     if (sourceMode !== "live") return;
-    watchedStationIndices().forEach((i) => realtime.refreshStation(i, appTime()));
+    // Voll-Abdeckung: kleinste Stationsmenge, die alle aktiven Bahnen
+    // erfasst; Favoriten + geoeffnete Station sind immer dabei (Tafeln)
+    realtime.coverageRefresh(appTime(), watchedStationIndices());
   }
   setInterval(liveRefresh, 60000);
 

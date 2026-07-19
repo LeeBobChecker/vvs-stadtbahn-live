@@ -320,6 +320,7 @@ class ScheduleSimulator {
         progress: (dist - st[0][3]) / total,
         delaySec: delay,
         realtime: hasLive,
+        sdSec: sec, // Betriebstag-Sekunde (verspaetungsbereinigt)
       });
     }
     return vehicles;
@@ -343,6 +344,9 @@ class EfaRealtime {
   static ENDPOINT = "https://www3.vvs.de/mngvvs/XML_DM_REQUEST";
   static REFRESH_MS = 45000; // je Station hoechstens alle 45 s abfragen
   static MAX_AGE_MS = 180000; // Daten verfallen nach 3 min
+  static FRESH_MS = 90000; // juenger als das gilt als "abgedeckt"
+  static COVER_BUDGET = 14; // max. zusaetzliche Stationsabfragen je Zyklus
+  static LOOKAHEAD_SEC = 900; // kommende Halte einer Bahn: naechste 15 min
 
   /**
    * @param {Object} network  Inhalt von data/network.json
@@ -404,6 +408,82 @@ class EfaRealtime {
       .slice(0, limit);
   }
 
+  /**
+   * Volle Abdeckung: sorgt dafuer, dass JEDE aktive Bahn eine frische
+   * Echtzeit-Korrektur bekommt. Jede Bahn nennt ihre Halte der naechsten
+   * 15 Minuten; per Greedy-Set-Cover wird die kleinste Stationsmenge
+   * gewaehlt, die alle noch unabgedeckten Bahnen erfasst (Knotenpunkte
+   * decken viele Linien auf einmal ab). `pinnedIndices` (Favoriten,
+   * geoeffnete Station) werden immer abgefragt.
+   */
+  coverageRefresh(timeMs, pinnedIndices = []) {
+    if (!this._tripById) {
+      this._tripById = new Map(this.simulator.trips.map((t) => [t.id, t]));
+    }
+    const now = Date.now();
+    const vehicles = this.simulator.getVehicles(timeMs, this.delays());
+
+    // Bahnen ohne frische Daten + ihre kommenden Halte
+    const uncovered = new Set();
+    const covers = new Map(); // stationIdx -> Set<tripId>
+    for (const v of vehicles) {
+      const entry = this._delays.get(v.id);
+      if (entry && now - entry.time < EfaRealtime.FRESH_MS) continue;
+      const trip = this._tripById.get(v.id);
+      if (!trip) continue;
+      const st = trip.st;
+      let hasCandidate = false;
+      for (let k = 0; k < st.length - 1; k++) {
+        const dep = st[k][2];
+        if (dep < v.sdSec) continue;
+        if (dep > v.sdSec + EfaRealtime.LOOKAHEAD_SEC) break;
+        let set = covers.get(st[k][0]);
+        if (!set) {
+          set = new Set();
+          covers.set(st[k][0], set);
+        }
+        set.add(v.id);
+        hasCandidate = true;
+      }
+      if (hasCandidate) uncovered.add(v.id);
+    }
+
+    // Feste Stationen zuerst (Tafeln) — sie decken ggf. schon Bahnen ab
+    const chosen = new Set(pinnedIndices);
+    chosen.forEach((idx) => {
+      const set = covers.get(idx);
+      if (set) set.forEach((id) => uncovered.delete(id));
+    });
+
+    // Greedy: Station mit den meisten unabgedeckten Bahnen zuerst
+    let budget = EfaRealtime.COVER_BUDGET;
+    while (uncovered.size && budget > 0) {
+      let bestIdx = -1;
+      let bestCount = 0;
+      covers.forEach((set, idx) => {
+        if (chosen.has(idx)) return;
+        let count = 0;
+        set.forEach((id) => {
+          if (uncovered.has(id)) count++;
+        });
+        if (count > bestCount) {
+          bestCount = count;
+          bestIdx = idx;
+        }
+      });
+      if (bestIdx < 0) break;
+      chosen.add(bestIdx);
+      covers.get(bestIdx).forEach((id) => uncovered.delete(id));
+      budget--;
+    }
+
+    // leicht gestaffelt abfragen (refreshStation drosselt je Station)
+    [...chosen].forEach((idx, i) => {
+      setTimeout(() => this.refreshStation(idx, timeMs), i * 250);
+    });
+    return chosen.size;
+  }
+
   /** Station abfragen (gedrosselt); loest onUpdate aus. */
   refreshStation(idx, timeMs) {
     const cached = this._stations.get(idx);
@@ -434,7 +514,9 @@ class EfaRealtime {
     const params = new URLSearchParams({
       SpEncId: "0",
       coordOutputFormat: "EPSG:4326",
-      limit: "12",
+      // hoeheres Limit = mehr Ereignisse je Abfrage, dadurch werden an
+      // Knotenpunkten mehr Fahrten in einem Rutsch gematcht
+      limit: "25",
       mode: "direct",
       name_dm: stationId,
       outputFormat: "rapidJSON",

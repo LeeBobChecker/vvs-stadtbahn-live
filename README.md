@@ -29,11 +29,15 @@ python3 -m http.server 8173 --directory docs
 - **Datenquellen-Schalter** Simulation ↔ Live: Der Live-Modus nutzt die
   öffentliche VVS-EFA-Schnittstelle (CORS offen, kein Schlüssel nötig):
   Abfahrtstafeln (Favoriten + Stations-Popups) zeigen Echtzeit inklusive
-  Verspätung (roter „+X"-Chip), und gematchte Verspätungen verschieben die
-  Bahnen auf der Karte (Position = Fahrplan zu „jetzt − Verspätung").
-  Abgefragt werden Favoriten und die geöffnete Station (alle 60 s,
-  gedrosselt); übrige Fahrten laufen nach Fahrplan. EFA-Ereignisse werden
-  über Linie + geplante Abfahrtsminute den GTFS-Fahrten zugeordnet.
+  Verspätung (roter „+X"-Chip), und Verspätungen verschieben die Bahnen
+  auf der Karte (Position = Fahrplan zu „jetzt − Verspätung").
+  **Voll-Abdeckung:** Jede Bahn nennt ihre Halte der nächsten 15 Minuten;
+  ein Greedy-Set-Cover wählt pro 60-s-Zyklus die kleinste Stationsmenge
+  (≤ 14 plus Favoriten), die alle noch unabgedeckten Bahnen erfasst —
+  Knotenpunkte decken viele Linien auf einmal ab. Nach 1–2 Zyklen haben
+  praktisch alle aktiven Bahnen Echtzeitdaten (~10–15 Abfragen/min).
+  EFA-Ereignisse werden über Linie + geplante Abfahrtsminute den
+  GTFS-Fahrten zugeordnet; Korrekturen verfallen nach 3 Minuten.
 - **Stadtbahn-Icons**: Zug von oben in Linienfarbe, in Fahrtrichtung gedreht —
   die helle Frontscheibe zeigt, wohin der Zug fährt; die Liniennummer bleibt
   immer lesbar
