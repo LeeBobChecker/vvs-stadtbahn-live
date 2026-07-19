@@ -26,7 +26,8 @@ python3 -m http.server 8173 --directory docs
   (~20 s) an jeder Station. Da die VVS-Zeiten minutengenau sind, wird je
   Fahrt eine stetige Zeit/Distanz-Kurve berechnet — auch bei
   0-Sekunden-Segmenten im Fahrplan gibt es keine Positionssprünge.
-- **Datenquellen-Schalter** Simulation ↔ Live: Der Live-Modus nutzt die
+- **Datenquellen-Schalter** Simulation ↔ Live (**Live ist Standard**, die
+  Wahl wird gespeichert): Der Live-Modus nutzt die
   öffentliche VVS-EFA-Schnittstelle (CORS offen, kein Schlüssel nötig):
   Abfahrtstafeln (Favoriten + Stations-Popups) zeigen Echtzeit inklusive
   Verspätung (roter „+X"-Chip), und Verspätungen verschieben die Bahnen

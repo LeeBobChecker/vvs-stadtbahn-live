@@ -10,7 +10,7 @@
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-  <link rel="stylesheet" href="css/style.css?v=9">
+  <link rel="stylesheet" href="css/style.css?v=10">
 </head>
 <body>
   <div id="map"></div>
@@ -20,7 +20,7 @@
       <span class="brand-logo">U</span>
       <div class="brand-text">
         <h1>Stuttgart Stadtbahn</h1>
-        <span id="source-badge" class="badge badge-sim" title="Positionen werden aus dem GTFS-Fahrplan berechnet. Sobald die Echtzeit-API freigeschaltet ist, wird sie hier angebunden.">Fahrplan&#8209;Simulation</span>
+        <span id="source-badge" class="badge badge-live" title="Echtzeit-Abfahrten und Verspätungen über die VVS-Schnittstelle.">Live</span>
       </div>
     </div>
     <div class="topbar-right">
@@ -41,8 +41,8 @@
     <div class="panel-section">
       <div class="panel-heading"><span>Datenquelle</span></div>
       <div class="seg" id="source-toggle">
-        <button class="seg-btn active" data-mode="sim">Simulation</button>
-        <button class="seg-btn" data-mode="live">Live (API)</button>
+        <button class="seg-btn" data-mode="sim">Simulation</button>
+        <button class="seg-btn active" data-mode="live">Live (API)</button>
       </div>
       <p class="hint" id="source-hint"></p>
     </div>
@@ -92,7 +92,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="js/datasource.js?v=9"></script>
-  <script src="js/app.js?v=9"></script>
+  <script src="js/datasource.js?v=10"></script>
+  <script src="js/app.js?v=10"></script>
 </body>
 </html>

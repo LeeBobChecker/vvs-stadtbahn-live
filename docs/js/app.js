@@ -822,7 +822,9 @@
   }
 
   /* ---- Datenquelle: Simulation <-> Live (API) ----------------------- */
-  let sourceMode = "sim";
+  // Live ist Standard; abweichende Wahl wird gespeichert.
+  const SOURCE_KEY = "stadtbahn-source";
+  let sourceMode = localStorage.getItem(SOURCE_KEY) === "sim" ? "sim" : "live";
   const badgeEl = document.getElementById("source-badge");
   const sourceHintEl = document.getElementById("source-hint");
 
@@ -884,8 +886,10 @@
   };
 
   document.querySelectorAll("#source-toggle .seg-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.mode === sourceMode);
     btn.addEventListener("click", () => {
       sourceMode = btn.dataset.mode;
+      localStorage.setItem(SOURCE_KEY, sourceMode);
       document
         .querySelectorAll("#source-toggle .seg-btn")
         .forEach((b) => b.classList.toggle("active", b === btn));
@@ -896,6 +900,8 @@
     });
   });
   refreshSourceInfo();
+  // Live-Standard: sofort erste Abdeckungs-Abfrage starten
+  if (sourceMode === "live") liveRefresh();
 
   /* ---- Animationsschleife ------------------------------------------ */
   // Tab im Hintergrund: nicht stoppen, sondern auf 1 Tick / 5 s drosseln.
