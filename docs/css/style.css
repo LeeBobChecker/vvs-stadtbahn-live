@@ -284,6 +284,109 @@ html, body {
   pointer-events: none;
 }
 
+/* ---------- Bahn verfolgen ---------- */
+.veh.followed::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2.5px solid var(--accent);
+  animation: follow-pulse 1.4s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes follow-pulse {
+  0% { transform: scale(0.85); opacity: 1; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+
+#follow-chip {
+  position: absolute;
+  top: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 14px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 99px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+#follow-chip[hidden] { display: none; }
+.follow-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: follow-blink 1.2s ease-in-out infinite;
+}
+@keyframes follow-blink { 50% { opacity: 0.3; } }
+#follow-stop {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  border: none;
+  border-radius: 50%;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+#follow-stop:hover { background: rgba(248, 81, 73, 0.25); color: #f85149; }
+
+.pp-follow {
+  margin-top: 8px;
+  width: 100%;
+  padding: 5px 10px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  background: rgba(88, 166, 255, 0.12);
+  color: var(--accent);
+  border: 1px solid rgba(88, 166, 255, 0.4);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.pp-follow:hover { background: rgba(88, 166, 255, 0.22); }
+
+/* ---------- Toast ---------- */
+.toast {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  transform: translate(-50%, 16px);
+  z-index: 3000;
+  max-width: min(86vw, 420px);
+  padding: 9px 16px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  font-size: 0.8rem;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 0.3s, transform 0.3s;
+  pointer-events: none;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ---------- Mein Standort ---------- */
+.user-dot {
+  background: #1a73e8;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.35), 0 1px 6px rgba(0, 0, 0, 0.4);
+}
+#btn-locate { font-size: 16px; }
+
 /* ---------- Stationen & Favoriten ---------- */
 .fav-icon {
   display: grid;
@@ -440,6 +543,15 @@ html, body {
 /* Stations-Popup */
 .sp-name { font-weight: 700; font-size: 0.9rem; }
 .sp-lines { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+.sp-deps {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--panel-border);
+  min-width: 220px;
+}
+.sp-deps .dep-row { cursor: pointer; border-radius: 5px; padding: 2.5px 4px; }
+.sp-deps .dep-row:hover { background: rgba(255, 255, 255, 0.07); }
+body.light .sp-deps .dep-row:hover { background: rgba(0, 0, 0, 0.05); }
 .sp-line {
   padding: 0 7px;
   border-radius: 4px;

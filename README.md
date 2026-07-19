@@ -47,6 +47,17 @@ python3 -m http.server 8173 --directory docs
 - **Stations-Popup** mit allen Linien, die dort halten
 - **Hell-/Dunkelmodus**: Umschalter oben rechts (☀/☾), wechselt Karte und
   Oberfläche. Startet passend zur Systemeinstellung, die Wahl wird gespeichert.
+- **Mein Standort** (◎ unten rechts): zeigt die eigene Position, findet die
+  nächstgelegene Haltestelle und öffnet deren Popup mit Abfahrten.
+- **Bahn verfolgen**: Klick auf eine Abfahrt (Tafel oder Stations-Popup) oder
+  auf „Dieser Bahn folgen" im Fahrzeug-Popup — die Karte bleibt an der Bahn,
+  Chip oben zeigt Linie/Ziel, Beenden per ✕ oder Karte ziehen.
+- **Linie isolieren**: Doppelklick auf einen Linien-Chip zeigt nur diese
+  Linie; erneuter Doppelklick bringt alle zurück.
+- **PWA**: installierbar („Zum Home-Bildschirm"), App-Icon, Offline-Cache
+  über Service Worker — beim zweiten Öffnen lädt die App aus dem Cache.
+- **Akkuschonend**: Animation pausiert bei Tab im Hintergrund; gerendert
+  werden nur Bahnen im sichtbaren Kartenausschnitt.
 - **Linienfilter** mit offiziellen VVS-Linienfarben
 - **Zeitreise** (±10 min / ±1 h), um den Betrieb zu anderen Uhrzeiten zu sehen
 - 203 Stationen mit Tooltip (ab Zoomstufe 13; Favoriten immer sichtbar)
@@ -64,13 +75,23 @@ docs/data/schedule.json  Fahrten mit Zeit/Distanz-Stützpunkten (generiert)
 
 ## Daten aktualisieren
 
-Neuen GTFS-Feed nach `~/Downloads/gtfs_realtime/` legen und ausführen:
+**Automatisch:** Eine GitHub Action
+([.github/workflows/update-data.yml](.github/workflows/update-data.yml))
+lädt jeden Montag den offiziellen VVS-GTFS-Feed
+(https://download.vvs.de/gtfs_realtime.zip, Lizenz CC BY 4.0 via
+MobiData BW), bereitet ihn auf und committet die Änderungen — GitHub Pages
+deployt dann automatisch. Manuell auslösbar über den „Run workflow"-Button.
+
+**Manuell:** Feed nach `~/Downloads/gtfs_realtime/` entpacken (oder
+`GTFS_DIR` setzen) und ausführen:
 
 ```bash
 python3 tools/prepare_data.py
 ```
 
-Der aktuelle Feed gilt vom 17.07.2026 bis 17.10.2026.
+`schedule.json` nutzt ein kompaktes Format (v2): identische Haltemuster
+werden als „Patterns" dedupliziert (≈1 MB statt 12 MB); der Browser
+expandiert sie beim Laden (`ScheduleSimulator.decodeSchedule`).
 
 ## Echtzeit-API anbinden (sobald der Zugang da ist)
 

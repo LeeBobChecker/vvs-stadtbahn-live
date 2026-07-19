@@ -8,10 +8,11 @@
 
 (async function main() {
   /* ---- Daten laden ------------------------------------------------ */
-  const [network, schedule] = await Promise.all([
+  const [network, scheduleRaw] = await Promise.all([
     fetch("data/network.json").then((r) => r.json()),
     fetch("data/schedule.json").then((r) => r.json()),
   ]);
+  const schedule = ScheduleSimulator.decodeSchedule(scheduleRaw);
 
   const simulator = new ScheduleSimulator(network, schedule);
   const realtime = new RealtimeSource(null /* Feed-URL folgt */, simulator);
@@ -111,9 +112,49 @@
         );
       })
       .join("");
+
+    // naechste Abfahrten (gleichnamige Teilstationen zusammen)
+    const indices = [];
+    network.stations.forEach((s, k) => {
+      if (s[0] === name) indices.push(k);
+    });
+    const now = appTime();
+    const d = new Date(now);
+    const secNow =
+      (now - new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()) /
+      1000;
+    let depHtml = "";
+    for (const dep of simulator.getDepartures(indices, now, 3)) {
+      const route = network.routes[dep.trip.r];
+      const diffMin = Math.floor((dep.sec - secNow) / 60);
+      const timeStr =
+        diffMin <= 0
+          ? "jetzt"
+          : diffMin < 60
+            ? diffMin + " min"
+            : String(Math.floor(((dep.sec / 3600) % 24))).padStart(2, "0") +
+              ":" +
+              String(Math.floor((dep.sec % 3600) / 60)).padStart(2, "0");
+      depHtml +=
+        '<div class="dep-row" data-trip="' + dep.trip.id +
+        '" title="Bahn auf der Karte zeigen"><span class="dep-line" style="background:' +
+        route.color + ";color:" + route.textColor + '">' + route.name +
+        '</span><span class="dep-dest">' + dep.trip.hs +
+        '</span><span class="dep-time' + (diffMin <= 0 ? " now" : "") + '">' +
+        timeStr + "</span></div>";
+    }
+
     el.innerHTML =
       '<div class="sp-name">' + name + "</div>" +
-      '<div class="sp-lines">' + lines + "</div>";
+      '<div class="sp-lines">' + lines + "</div>" +
+      (depHtml ? '<div class="sp-deps">' + depHtml + "</div>" : "");
+    el.addEventListener("click", (e) => {
+      const row = e.target.closest(".dep-row[data-trip]");
+      if (row) {
+        map.closePopup();
+        followTrip(row.dataset.trip);
+      }
+    });
     const btn = document.createElement("button");
     btn.className = "sp-fav-btn";
     btn.textContent = favNames.has(name)
@@ -211,6 +252,7 @@
 
   /* ---- Abfahrtstafel (fuer Favoriten) ------------------------------- */
   function renderDepartures() {
+    if (document.hidden) return; // Tab im Hintergrund: Akku schonen
     const section = document.getElementById("departures-section");
     const board = document.getElementById("dep-board");
     const favs = [...favNames].sort((a, b) => a.localeCompare(b, "de"));
@@ -253,7 +295,7 @@
           '<div class="dep-empty">Keine Abfahrten in den n&auml;chsten 2&nbsp;Stunden.</div>';
       } else {
         for (const dep of deps) {
-          const route = network.routes[dep.route];
+          const route = network.routes[dep.trip.r];
           const diffMin = Math.floor((dep.sec - secNow) / 60);
           let timeStr;
           let cls = "dep-time";
@@ -266,14 +308,16 @@
             timeStr = clock(dep.sec);
           }
           html +=
-            '<div class="dep-row"><span class="dep-line" style="background:' +
+            '<div class="dep-row" data-trip="' +
+            dep.trip.id +
+            '" title="Bahn auf der Karte zeigen"><span class="dep-line" style="background:' +
             route.color +
             ";color:" +
             route.textColor +
             '">' +
             route.name +
             '</span><span class="dep-dest">' +
-            dep.headsign +
+            dep.trip.hs +
             '</span><span class="' +
             cls +
             '">' +
@@ -374,6 +418,12 @@
     }
   }
 
+  // Klick auf eine Abfahrt: zugehoerige Bahn auf der Karte verfolgen
+  document.getElementById("dep-board").addEventListener("click", (e) => {
+    const row = e.target.closest(".dep-row[data-trip]");
+    if (row) followTrip(row.dataset.trip);
+  });
+
   searchInput.addEventListener("input", renderSearch);
   searchInput.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
@@ -425,40 +475,38 @@
   /* ---- UI: Linien-Filter ------------------------------------------ */
   const enabledRoutes = new Set(network.routes.map((_, i) => i));
   const chipsEl = document.getElementById("line-chips");
+
+  function setRouteEnabled(i, on) {
+    const chip = chipsEl.children[i];
+    if (on && !enabledRoutes.has(i)) {
+      enabledRoutes.add(i);
+      chip.classList.remove("off");
+      map.addLayer(lineLayers.get(i));
+    } else if (!on && enabledRoutes.has(i)) {
+      enabledRoutes.delete(i);
+      chip.classList.add("off");
+      map.removeLayer(lineLayers.get(i));
+    }
+  }
+
   network.routes.forEach((r, i) => {
     const chip = document.createElement("div");
     chip.className = "chip";
     chip.textContent = r.name;
-    chip.title = r.longName;
+    chip.title = r.longName + " — Doppelklick: nur diese Linie";
     chip.style.setProperty("--chip-color", r.color);
     chip.style.setProperty("--chip-text", r.textColor);
-    chip.addEventListener("click", () => {
-      if (enabledRoutes.has(i)) {
-        enabledRoutes.delete(i);
-        chip.classList.add("off");
-        map.removeLayer(lineLayers.get(i));
-      } else {
-        enabledRoutes.add(i);
-        chip.classList.remove("off");
-        map.addLayer(lineLayers.get(i));
-      }
+    chip.addEventListener("click", () => setRouteEnabled(i, !enabledRoutes.has(i)));
+    // Doppelklick isoliert die Linie; erneuter Doppelklick zeigt wieder alle
+    chip.addEventListener("dblclick", () => {
+      const isolated = enabledRoutes.size === 1 && enabledRoutes.has(i);
+      network.routes.forEach((_, k) => setRouteEnabled(k, isolated || k === i));
     });
     chipsEl.appendChild(chip);
   });
   document.getElementById("btn-all-lines").addEventListener("click", () => {
     const allOn = enabledRoutes.size === network.routes.length;
-    network.routes.forEach((_, i) => {
-      const chip = chipsEl.children[i];
-      if (allOn) {
-        enabledRoutes.delete(i);
-        chip.classList.add("off");
-        map.removeLayer(lineLayers.get(i));
-      } else if (!enabledRoutes.has(i)) {
-        enabledRoutes.add(i);
-        chip.classList.remove("off");
-        map.addLayer(lineLayers.get(i));
-      }
-    });
+    network.routes.forEach((_, i) => setRouteEnabled(i, !allOn));
   });
 
   /* ---- UI: Zeitsteuerung ------------------------------------------ */
@@ -541,7 +589,7 @@
       autoPanPaddingBottomRight: L.point(24, 40),
     });
     marker.addTo(map);
-    return { marker, trainEl: el.querySelector(".veh-train") };
+    return { marker, trainEl: el.querySelector(".veh-train"), el };
   }
 
   function popupHtml(v) {
@@ -562,9 +610,128 @@
       "</b> &middot; " +
       fmtTime(v.nextStopTime) +
       " Uhr</div>" +
+      '<button class="pp-follow" data-trip="' +
+      v.id +
+      '">' +
+      (followId === v.id ? "Nicht mehr folgen" : "Dieser Bahn folgen") +
+      "</button>" +
       '<div class="pp-src">' +
       (v.realtime ? "Echtzeitdaten" : "Fahrplan-Simulation &mdash; Echtzeit-API folgt") +
       "</div>"
+    );
+  }
+
+  /* ---- Bahn verfolgen ----------------------------------------------- */
+  let followId = null;
+  const followChip = document.getElementById("follow-chip");
+  const followLabel = document.getElementById("follow-label");
+
+  function followTrip(tripId) {
+    const source = sourceMode === "live" ? realtime : simulator;
+    const v = source.getVehicles(appTime()).find((x) => x.id === tripId);
+    if (!v) {
+      toast("Diese Bahn ist noch nicht unterwegs — sie erscheint zur Abfahrt.");
+      return;
+    }
+    followId = tripId;
+    const route = network.routes[v.route];
+    followLabel.textContent = route.name + " → " + v.headsign;
+    followChip.hidden = false;
+    map.setView([v.lat, v.lon], Math.max(map.getZoom(), 15));
+    tick();
+  }
+
+  function stopFollow() {
+    if (!followId) return;
+    followId = null;
+    followChip.hidden = true;
+    const el = document.querySelector(".veh.followed");
+    if (el) el.classList.remove("followed");
+  }
+
+  map.on("dragstart", stopFollow);
+  document.getElementById("follow-stop").addEventListener("click", stopFollow);
+  // "Folgen"-Button im Fahrzeug-Popup (Inhalt wird dynamisch ersetzt)
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".pp-follow");
+    if (!btn) return;
+    if (followId === btn.dataset.trip) stopFollow();
+    else followTrip(btn.dataset.trip);
+  });
+
+  /* ---- Hinweis-Toast ------------------------------------------------ */
+  function toast(msg) {
+    const t = document.createElement("div");
+    t.className = "toast";
+    t.textContent = msg;
+    document.body.appendChild(t);
+    requestAnimationFrame(() => t.classList.add("show"));
+    setTimeout(() => {
+      t.classList.remove("show");
+      setTimeout(() => t.remove(), 400);
+    }, 3000);
+  }
+
+  /* ---- Mein Standort ------------------------------------------------ */
+  let userMarker = null;
+  const locateControl = L.control({ position: "bottomright" });
+  locateControl.onAdd = () => {
+    const div = L.DomUtil.create("div", "leaflet-bar");
+    div.innerHTML =
+      '<a href="#" id="btn-locate" title="Mein Standort &amp; n&auml;chste Haltestelle">&#9678;</a>';
+    L.DomEvent.on(div, "click", (e) => {
+      L.DomEvent.stop(e);
+      locateMe();
+    });
+    return div;
+  };
+  locateControl.addTo(map);
+
+  function locateMe() {
+    if (!navigator.geolocation) {
+      toast("Standortabfrage wird von diesem Browser nicht unterstützt.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        if (!userMarker) {
+          userMarker = L.marker([lat, lon], {
+            icon: L.divIcon({ className: "user-dot", iconSize: [16, 16], iconAnchor: [8, 8] }),
+            interactive: false,
+            zIndexOffset: 600,
+          }).addTo(map);
+        } else {
+          userMarker.setLatLng([lat, lon]);
+        }
+        // naechstgelegene Haltestelle suchen und ihr Popup (mit Abfahrten) oeffnen
+        let best = -1;
+        let bestDist = Infinity;
+        network.stations.forEach(([, slat, slon], i) => {
+          const d2 = Math.hypot(slat - lat, (slon - lon) * 0.66);
+          if (d2 < bestDist) {
+            bestDist = d2;
+            best = i;
+          }
+        });
+        map.flyTo([lat, lon], Math.max(map.getZoom(), 15));
+        if (best >= 0) {
+          const meters = Math.round(bestDist * 111000);
+          toast(
+            "Nächste Haltestelle: " + network.stations[best][0] + " (~" + meters + " m)"
+          );
+          map.once("moveend", () => stationMarkers[best].openPopup());
+        }
+      },
+      (err) => {
+        toast(
+          err.code === 1
+            ? "Standortfreigabe wurde abgelehnt."
+            : "Standort nicht verfügbar."
+        );
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
     );
   }
 
@@ -611,15 +778,25 @@
 
   /* ---- Animationsschleife ------------------------------------------ */
   function tick() {
+    if (document.hidden) return; // Tab im Hintergrund: Akku schonen
     const now = appTime();
 
     const source = sourceMode === "live" ? realtime : simulator;
     const vehicles = source.getVehicles(now).filter((v) => enabledRoutes.has(v.route));
 
+    // nur Bahnen im (grosszuegig erweiterten) Kartenausschnitt rendern;
+    // verfolgte Bahnen und offene Popups bleiben immer erhalten
+    const bounds = map.getBounds().pad(0.2);
     const seen = new Set();
     for (const v of vehicles) {
+      const existing = markers.get(v.id);
+      const visible =
+        v.id === followId ||
+        bounds.contains([v.lat, v.lon]) ||
+        (existing && existing.marker.isPopupOpen());
+      if (!visible) continue;
       seen.add(v.id);
-      let entry = markers.get(v.id);
+      let entry = existing;
       if (!entry) {
         entry = makeMarker(v);
         markers.set(v.id, entry);
@@ -627,6 +804,7 @@
       entry.marker._veh = v;
       entry.marker.setLatLng([v.lat, v.lon]);
       entry.trainEl.style.transform = "rotate(" + v.bearing.toFixed(1) + "deg)";
+      entry.el.classList.toggle("followed", v.id === followId);
       if (entry.marker.isPopupOpen()) {
         // Popup nur bei inhaltlicher Aenderung neu rendern (10-Hz-Takt)
         const html = popupHtml(v);
@@ -636,7 +814,7 @@
         }
       }
     }
-    // verschwundene Fahrzeuge entfernen
+    // verschwundene / ausgeblendete Fahrzeuge entfernen
     markers.forEach((entry, id) => {
       if (!seen.has(id)) {
         map.removeLayer(entry.marker);
@@ -644,9 +822,23 @@
       }
     });
 
+    // Folgen-Modus: Karte auf der Bahn halten
+    if (followId) {
+      const f = markers.get(followId);
+      if (f) map.setView(f.marker.getLatLng(), map.getZoom(), { animate: false });
+      else stopFollow(); // Fahrt beendet
+    }
+
     vehCountEl.textContent = String(vehicles.length);
     clockEl.textContent = new Date(now).toLocaleTimeString("de-DE");
   }
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      tick();
+      renderDepartures();
+    }
+  });
 
   // 10 Hz fuer fluessige, konstante Bewegung entlang der Strecke
   setInterval(tick, 100);
@@ -657,7 +849,12 @@
   setInterval(renderDepartures, 10000);
 
   // Fuer Debugging und die spaetere API-Anbindung
-  window.stadtbahn = { simulator, realtime };
+  window.stadtbahn = { simulator, realtime, map, stationMarkers };
+
+  // PWA: Service Worker fuer Offline-Cache und schnelle Wiederbesuche
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
 
   document.getElementById("loading").classList.add("hidden");
 })().catch((err) => {

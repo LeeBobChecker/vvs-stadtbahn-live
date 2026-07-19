@@ -1,0 +1,17 @@
+{
+  "name": "Stuttgart Stadtbahn Live",
+  "short_name": "Stadtbahn",
+  "description": "Live-Karte der Stuttgarter Stadtbahn mit Abfahrtstafel",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0d1117",
+  "theme_color": "#0067b1",
+  "lang": "de",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

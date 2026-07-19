@@ -27,6 +27,28 @@
 
 class ScheduleSimulator {
   /**
+   * Expandiert das kompakte schedule.json (v2: Patterns + Startzeiten)
+   * in das Laufzeitformat mit absoluten Zeiten je Fahrt.
+   */
+  static decodeSchedule(raw) {
+    if (!raw.version) return raw; // altes, unkomprimiertes Format
+    const trips = raw.trips.map((t, i) => {
+      const p = raw.patterns[t[0]];
+      const start = t[1];
+      return {
+        id: raw.ids[i],
+        r: p.r,
+        sh: p.sh,
+        sv: t[2],
+        hs: raw.headsigns[p.hs],
+        d: p.d,
+        st: p.st.map((s) => [s[0], start + s[1], start + s[2], s[3]]),
+      };
+    });
+    return { services: raw.services, trips };
+  }
+
+  /**
    * Ziel-Standzeit an jeder Station in Sekunden. Die VVS-Zeiten sind
    * minutengenau; oft ist Ankunft == Abfahrt und bei kurzen Stations-
    * abstaenden sogar Abfahrt A == Ankunft B (0 s Fahrzeit). Deshalb wird
@@ -184,10 +206,11 @@ class ScheduleSimulator {
   /**
    * Naechste Abfahrten an einer Station.
    * `stationIdxList`: Stations-Indizes (gleichnamige Teilstationen werden
-   * gemeinsam abgefragt). Liefert [{sec, route, headsign}], `sec` relativ
-   * zur Mitternacht des Kalendertags von `timeMs`. Endhalte einer Fahrt
-   * zaehlen nicht als Abfahrt. Basis sind Fahrplanzeiten — Verspaetungen
-   * kommen spaeter aus der Echtzeitquelle dazu.
+   * gemeinsam abgefragt). Liefert [{sec, trip}], `sec` relativ zur
+   * Mitternacht des Kalendertags von `timeMs`; `trip` ist die zugehoerige
+   * Fahrt (fuer Linie, Ziel und Karten-Verknuepfung). Endhalte einer
+   * Fahrt zaehlen nicht als Abfahrt. Basis sind Fahrplanzeiten —
+   * Verspaetungen kommen spaeter aus der Echtzeitquelle dazu.
    */
   getDepartures(stationIdxList, timeMs, limit = 4, horizonSec = 7200) {
     const d = new Date(timeMs);
@@ -211,16 +234,16 @@ class ScheduleSimulator {
             if (!services.has(trip.sv)) continue;
             const st = trip.st;
             for (let k = 0; k < st.length - 1; k++) {
-              if (st[k][0] === idx) list.push([st[k][2], trip.r, trip.hs]);
+              if (st[k][0] === idx) list.push([st[k][2], trip]);
             }
           }
           list.sort((a, b) => a[0] - b[0]);
           this._depCache.set(cacheKey, list);
         }
-        for (const [dep, route, hs] of list) {
+        for (const [dep, trip] of list) {
           const wall = dep - day.off;
           if (wall >= secBase && wall <= secBase + horizonSec) {
-            out.push({ sec: wall, route, headsign: hs });
+            out.push({ sec: wall, trip });
           }
         }
       }

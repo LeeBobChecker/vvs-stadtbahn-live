@@ -13,7 +13,7 @@ import os
 import sys
 from collections import defaultdict
 
-GTFS_DIR = os.path.expanduser("~/Downloads/gtfs_realtime")
+GTFS_DIR = os.environ.get("GTFS_DIR", os.path.expanduser("~/Downloads/gtfs_realtime"))
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "docs", "data")
 
 STADTBAHN_ROUTE_TYPE = "402"  # Urban Railway (Stadtbahn)
@@ -147,15 +147,24 @@ def main():
     for k in shape_keys:
         pts = sorted(shapes_raw[k])
         shapes_out.append({
-            "pts": [[p[1], p[2]] for p in pts],
-            "dist": [p[3] for p in pts],
+            "pts": [[round(p[1], 5), round(p[2], 5)] for p in pts],
+            "dist": [int(round(p[3])) for p in pts],
         })
     print(f"Shapes geladen: {len(shapes_out)}", file=sys.stderr)
 
-    # --- Fahrten serialisieren ------------------------------------------
+    # --- Fahrten serialisieren (kompaktes Format v2) --------------------
+    # Fahrten mit identischem Haltemuster (Route, Shape, Ziel, relative
+    # Zeiten, Distanzen) teilen sich ein "Pattern"; je Fahrt bleiben nur
+    # Pattern-Index, Startzeit und Verkehrstag. Der Browser expandiert
+    # das beim Laden wieder (ScheduleSimulator.decodeSchedule).
     service_keys = sorted(services)
     service_idx = {k: i for i, k in enumerate(service_keys)}
+    headsign_idx = {}
+    headsigns = []
+    pattern_idx = {}
+    patterns = []
     trips_out = []
+    trip_ids = []
     skipped = 0
     for tid, t in trips.items():
         sts = stop_times.get(tid)
@@ -163,20 +172,32 @@ def main():
             skipped += 1
             continue
         sts.sort()
-        stops_arr = [[station_idx[stopid_to_station[sid]], arr, dep, round(dist, 1)]
-                     for _, sid, arr, dep, dist in sts]
-        trips_out.append({
-            "id": tid,
-            "r": t["route"],
-            "sh": shape_idx[t["shape"]],
-            "sv": service_idx[t["service"]],
-            "hs": t["headsign"],
-            "d": t["dir"],
-            "st": stops_arr,
-        })
+        start = sts[0][3]  # Abfahrt am ersten Halt
+        rel = tuple(
+            (station_idx[stopid_to_station[sid]], arr - start, dep - start,
+             int(round(dist)))
+            for _, sid, arr, dep, dist in sts
+        )
+        hs = t["headsign"]
+        if hs not in headsign_idx:
+            headsign_idx[hs] = len(headsigns)
+            headsigns.append(hs)
+        key = (t["route"], shape_idx[t["shape"]], headsign_idx[hs], t["dir"], rel)
+        if key not in pattern_idx:
+            pattern_idx[key] = len(patterns)
+            patterns.append({
+                "r": t["route"],
+                "sh": shape_idx[t["shape"]],
+                "hs": headsign_idx[hs],
+                "d": t["dir"],
+                "st": [list(x) for x in rel],
+            })
+        trips_out.append([pattern_idx[key], start, service_idx[t["service"]]])
+        trip_ids.append(tid)
     if skipped:
         print(f"Uebersprungen (ohne Zeiten/Shape): {skipped}", file=sys.stderr)
-    print(f"Exportierte Fahrten: {len(trips_out)}", file=sys.stderr)
+    print(f"Exportierte Fahrten: {len(trips_out)}, Patterns: {len(patterns)}",
+          file=sys.stderr)
 
     # --- Schreiben ------------------------------------------------------
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -187,8 +208,12 @@ def main():
         "shapes": shapes_out,
     }
     schedule = {
+        "version": 2,
         "services": [services[k] for k in service_keys],
+        "headsigns": headsigns,
+        "patterns": patterns,
         "trips": trips_out,
+        "ids": trip_ids,
     }
     with open(os.path.join(OUT_DIR, "network.json"), "w", encoding="utf-8") as f:
         json.dump(network, f, ensure_ascii=False, separators=(",", ":"))

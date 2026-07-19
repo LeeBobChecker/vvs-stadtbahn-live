@@ -4,9 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Stuttgart Stadtbahn Live</title>
+  <meta name="theme-color" content="#0067b1">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-  <link rel="stylesheet" href="css/style.css?v=4">
+  <link rel="stylesheet" href="css/style.css?v=6">
 </head>
 <body>
   <div id="map"></div>
@@ -74,6 +78,12 @@
     </div>
   </aside>
 
+  <div id="follow-chip" hidden>
+    <span class="follow-dot"></span>
+    <span id="follow-label"></span>
+    <button id="follow-stop" title="Nicht mehr folgen">&times;</button>
+  </div>
+
   <div id="loading">
     <div class="spinner"></div>
     <p>Lade Liniennetz &amp; Fahrplan &hellip;</p>
@@ -81,7 +91,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="js/datasource.js?v=4"></script>
-  <script src="js/app.js?v=4"></script>
+  <script src="js/datasource.js?v=6"></script>
+  <script src="js/app.js?v=6"></script>
 </body>
 </html>
